@@ -1,27 +1,73 @@
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const express = require('express');
+const { VM } = require('vm2');
+const Redis = require('ioredis');
+const path = require('path');
+const config = require('./config');
 
-    // 1. Fetch all triggers for this server from Redis
-    const serverCommands = await redis.hgetall(`commands:${message.guild.id}`);
+const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+});
+
+const app = express();
+const redis = new Redis(); // Ensure Redis is running
+app.use(express.json());
+app.use(express.static('dashboard'));
+
+// --- CODE EXECUTION ENGINE ---
+const runSandbox = async (code, context) => {
+    const vm = new VM({
+        timeout: 2000,
+        sandbox: { ...context, console: { log: (arg) => console.log(`[VM LOG]: ${arg}`) } }
+    });
+    try {
+        return await vm.run(`(async () => { ${code} })()`);
+    } catch (err) {
+        return `⚠️ Error: ${err.message}`;
+    }
+};
+
+// --- DISCORD EVENT LISTENER ---
+client.on('messageCreate', async (message) => {
+    if (message.author.bot || !message.guild) return;
+
+    // Fetch commands for this specific guild from Redis
+    const guildCommands = await redis.hgetall(`commands:${message.guild.id}`);
     
-    for (const cmdId in serverCommands) {
-        const cmd = JSON.parse(serverCommands[cmdId]);
-        
-        // 2. CHECK TRIGGERS (Like YAGPDB)
+    for (const id in guildCommands) {
+        const cmd = JSON.parse(guildCommands[id]);
         let triggered = false;
-        if (cmd.type === 'prefix' && message.content.startsWith(cmd.prefix + cmd.name)) triggered = true;
+
+        // Trigger Logic (Similar to YAGPDB)
+        if (cmd.type === 'prefix' && message.content.startsWith((cmd.prefix || '!') + cmd.name)) triggered = true;
         if (cmd.type === 'message' && message.content.toLowerCase().includes(cmd.trigger.toLowerCase())) triggered = true;
-        // Add more: regex, startsWith, etc.
 
         if (triggered) {
-            // 3. EXECUTE VIA SANDBOX
-            // Pass the message/user context into the VM
-            const result = await executeRemoteCode(cmd.code, cmd.language, {
+            const context = {
                 user: message.author,
+                guild: message.guild,
                 channel: message.channel,
-                content: message.content
-            });
-            if (result) message.reply(result);
+                args: message.content.split(' ').slice(1)
+            };
+            const result = await runSandbox(cmd.code, context);
+            if (result) message.reply(String(result));
         }
     }
 });
+
+// --- API ROUTES FOR DASHBOARD ---
+app.get('/api/bot-guilds', (req, res) => {
+    const guilds = client.guilds.cache.map(g => ({ id: g.id, name: g.name, icon: g.icon }));
+    res.json(guilds);
+});
+
+app.post('/api/save-command', async (req, res) => {
+    const { guildId, command } = req.body;
+    if (!guildId || !command) return res.status(400).send('Missing data');
+    
+    await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
+    res.sendStatus(200);
+});
+
+client.login(config.TOKEN);
+app.listen(80, () => console.log('Dashboard running on http://localhost'));
