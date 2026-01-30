@@ -1,0 +1,8 @@
+module.exports = {
+  MAX_COMMANDS_PER_SERVER: 100,
+  MAX_COMMAND_LENGTH: 20000,
+  RATE_LIMIT: {
+    USER: { MAX: 10, WINDOW: 60000 },
+    GUILD: { MAX: 100, WINDOW: 60000 }
+  }
+};
