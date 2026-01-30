@@ -1,73 +1,78 @@
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
-const express = require('express');
+const { Client, GatewayIntentBits } = require('discord.js');
+const { exec } = require('child_process');
 const { VM } = require('vm2');
 const Redis = require('ioredis');
-const path = require('path');
-const config = require('./config');
+const fs = require('fs');
 
-const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
-});
+const client = new Client({ intents: [32767] });
+const redis = new Redis();
 
-const app = express();
-const redis = new Redis(); // Ensure Redis is running
-app.use(express.json());
-app.use(express.static('dashboard'));
+// --- THE MULTI-LANG EXECUTOR ---
+async function executeCode(lang, code, context) {
+    const timeout = 3000; // 3 second kill-limit
 
-// --- CODE EXECUTION ENGINE ---
-const runSandbox = async (code, context) => {
-    const vm = new VM({
-        timeout: 2000,
-        sandbox: { ...context, console: { log: (arg) => console.log(`[VM LOG]: ${arg}`) } }
-    });
-    try {
-        return await vm.run(`(async () => { ${code} })()`);
-    } catch (err) {
-        return `⚠️ Error: ${err.message}`;
+    switch (lang) {
+        case 'js':
+            const vm = new VM({ timeout, sandbox: context });
+            try { return await vm.run(`(async () => { ${code} })()`); } 
+            catch (e) { return `JS Error: ${e.message}`; }
+
+        case 'py':
+            return new Promise((resolve) => {
+                // Wrap python code to accept context via JSON
+                const pyCode = `
+import json
+context = json.loads('${JSON.stringify(context)}')
+${code}
+`;
+                fs.writeFileSync('temp.py', pyCode);
+                exec(`python3 temp.py`, { timeout }, (error, stdout, stderr) => {
+                    if (error) resolve(`Python Error: ${stderr}`);
+                    resolve(stdout || "Code executed (no output)");
+                });
+            });
+
+        case 'go':
+            return new Promise((resolve) => {
+                // Go requires a main package structure
+                const goCode = `
+package main
+import "fmt"
+func main() {
+    ${code}
+}
+`;
+                fs.writeFileSync('temp.go', goCode);
+                exec(`go run temp.go`, { timeout }, (error, stdout, stderr) => {
+                    if (error) resolve(`Go Error: ${stderr}`);
+                    resolve(stdout || "Code executed (no output)");
+                });
+            });
     }
-};
+}
 
-// --- DISCORD EVENT LISTENER ---
 client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
+    if (message.author.bot) return;
 
-    // Fetch commands for this specific guild from Redis
     const guildCommands = await redis.hgetall(`commands:${message.guild.id}`);
-    
     for (const id in guildCommands) {
         const cmd = JSON.parse(guildCommands[id]);
+        
         let triggered = false;
-
-        // Trigger Logic (Similar to YAGPDB)
         if (cmd.type === 'prefix' && message.content.startsWith((cmd.prefix || '!') + cmd.name)) triggered = true;
         if (cmd.type === 'message' && message.content.toLowerCase().includes(cmd.trigger.toLowerCase())) triggered = true;
 
         if (triggered) {
             const context = {
-                user: message.author,
-                guild: message.guild,
-                channel: message.channel,
-                args: message.content.split(' ').slice(1)
+                user: message.author.username,
+                content: message.content,
+                channel: message.channel.id
             };
-            const result = await runSandbox(cmd.code, context);
-            if (result) message.reply(String(result));
+            const result = await executeCode(cmd.language, cmd.code, context);
+            message.reply(`\`\`\`\n${result}\n\`\`\``);
         }
     }
 });
 
-// --- API ROUTES FOR DASHBOARD ---
-app.get('/api/bot-guilds', (req, res) => {
-    const guilds = client.guilds.cache.map(g => ({ id: g.id, name: g.name, icon: g.icon }));
-    res.json(guilds);
-});
-
-app.post('/api/save-command', async (req, res) => {
-    const { guildId, command } = req.body;
-    if (!guildId || !command) return res.status(400).send('Missing data');
-    
-    await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
-    res.sendStatus(200);
-});
-
-client.login(config.TOKEN);
-app.listen(80, () => console.log('Dashboard running on http://localhost'));
+client.login("YOUR_TOKEN_HERE");
+                     
