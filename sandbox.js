@@ -1,28 +1,14 @@
-const { NodeVM } = require('vm2');
+const { exec } = require('child_process');
 
-const vm = new NodeVM({
-  console: 'redirect',
-  sandbox: {},
-  timeout: 3000,
-  eval: false,
-  wasm: false,
-  require: {
-    external: ['axios', 'moment'],
-    builtin: [],
-    root: "./"
-  }
-});
-
-module.exports.runSandboxed = async (code, context) => {
-  try {
-    const script = `
-      module.exports = async (context) => {
-        ${code}
-      }
-    `;
-    const fn = vm.run(script);
-    return await fn(context);
-  } catch (err) {
-    return "⚠️ Sandbox execution blocked";
-  }
-};
+async function executeRemoteCode(code, lang, context) {
+    switch(lang) {
+        case 'js':
+            return vm.run(code, context); 
+        case 'py':
+            // WARNING: Use a Docker container or restricted shell for this!
+            // This is a simplified example
+            return runPython(code, context); 
+        default:
+            return "Language not yet supported in sandbox.";
+    }
+}
