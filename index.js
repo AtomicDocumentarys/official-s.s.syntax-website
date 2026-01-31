@@ -15,10 +15,8 @@ const { body, validationResult } = require('express-validator');
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const REDIRECT_URI = process.env.REDIRECT_URI || (process.env.RAILWAY_STATIC_URL ? `${process.env.RAILWAY_STATIC_URL}/callback` : 'https://official-sssyntax-website-production.up.railway.app/callback');
+const REDIRECT_URI = 'https://official-sssyntax-website-production.up.railway.app/callback';
 const REDIS_URL = process.env.REDIS_URL;
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
 
 // Check environment variables
 if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
@@ -29,9 +27,6 @@ if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
     console.error('REDIS_URL:', REDIS_URL ? 'OK' : 'MISSING');
     process.exit(1);
 }
-
-console.log('🚀 Server starting...');
-console.log(`📊 PORT: ${PORT}, HOST: ${HOST}`);
 
 const client = new Client({
     intents: [
@@ -52,37 +47,20 @@ const errorLog = [];
 // Middleware
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(cors({ origin: '*', credentials: true }));
-app.use(express.static('public'));
+app.use(express.static('.'));
 
 // Request logging
 app.use((req, res, next) => {
-    console.log(`${req.method} ${req.path}`);
+    console.log(req.method + ' ' + req.path);
     next();
 });
 
-// === ROOT ENDPOINT ===
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// === HEALTH CHECK ===
+// Health check
 app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        bot: client.isReady() ? 'ready' : 'starting',
-        uptime: process.uptime()
-    });
+    res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// === DISCORD OAUTH ENDPOINTS ===
-app.get('/api/authorize', (req, res) => {
-    const redirectUri = encodeURIComponent(REDIRECT_URI);
-    const scopes = encodeURIComponent('identify guilds');
-    const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${redirectUri}&response_type=code&scope=${scopes}`;
-    res.redirect(url);
-});
-
+// OAuth Callback
 app.get('/callback', async (req, res) => {
     try {
         const { code } = req.query;
@@ -101,34 +79,28 @@ app.get('/callback', async (req, res) => {
         );
         
         const { access_token } = tokenResponse.data;
-        res.redirect(`/?token=${access_token}`);
+        res.redirect('/?token=' + access_token);
     } catch (error) {
         console.error('OAuth error:', error.message);
         res.redirect('/?error=auth_failed');
     }
 });
 
-// === AUTHENTICATION MIDDLEWARE ===
+// Authentication middleware
 async function authenticateUser(req, res, next) {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            // Check for token in query parameter
-            const token = req.query.token;
-            if (token) {
-                req.token = token;
-            } else {
-                return res.status(401).json({ error: 'No token provided' });
-            }
-        } else {
-            req.token = authHeader.replace('Bearer ', '');
+            return res.status(401).json({ error: 'No token' });
         }
         
+        const token = authHeader.replace('Bearer ', '');
         const response = await axios.get('https://discord.com/api/users/@me', {
-            headers: { Authorization: `Bearer ${req.token}` }
+            headers: { Authorization: 'Bearer ' + token }
         });
         
         req.user = response.data;
+        req.token = token;
         next();
     } catch (e) {
         console.error('Auth error:', e.message);
@@ -136,114 +108,142 @@ async function authenticateUser(req, res, next) {
     }
 }
 
-// === USER ENDPOINTS ===
-app.get('/api/user/me', authenticateUser, (req, res) => {
+// Guild access verification
+async function verifyGuildAccess(req, res, next) {
+    const guildId = req.params.guildId || req.body.guildId;
+    if (!guildId) return res.status(400).json({ error: 'Guild ID required' });
+    
+    try {
+        const guild = client.guilds.cache.get(guildId);
+        if (!guild) return res.status(404).json({ error: 'Guild not found' });
+        
+        const member = await guild.members.fetch(req.user.id).catch(() => null);
+        if (!member || !member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        
+        req.guild = guild;
+        next();
+    } catch (e) {
+        console.error('Guild access error:', e.message);
+        res.status(403).json({ error: 'Access failed' });
+    }
+}
+
+// Utility functions
+function checkRateLimit(userId, cmdId, cooldown = 2000) {
+    const key = userId + ':' + cmdId;
+    const now = Date.now();
+    if (!rateLimit.has(key)) rateLimit.set(key, 0);
+    
+    const lastUsed = rateLimit.get(key);
+    if (lastUsed > 0 && now - lastUsed < cooldown) return false;
+    
+    rateLimit.set(key, now);
+    return true;
+}
+
+async function cleanupTempFile(filepath) {
+    try {
+        if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+    } catch (e) {
+        console.error('Cleanup error:', e);
+    }
+}
+
+// API Routes
+
+// User Info
+app.get('/api/user-me', authenticateUser, async (req, res) => {
     res.json(req.user);
 });
 
-// === GUILDS/SERVERS ENDPOINTS ===
-app.get('/api/guilds', authenticateUser, async (req, res) => {
+// Mutual Servers
+app.get('/api/mutual-servers', authenticateUser, async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me/guilds', {
-            headers: { Authorization: `Bearer ${req.token}` }
+            headers: { Authorization: 'Bearer ' + req.token }
         });
         
-        // Filter guilds where user has admin permissions and bot is in the guild
-        const guilds = response.data.filter(guild => {
+        const mutual = response.data.filter(g => {
             try {
-                const permissions = BigInt(guild.permissions);
-                const hasAdmin = (permissions & 0x20n) === 0x20n; // MANAGE_GUILD permission
-                const botInGuild = client.guilds.cache.has(guild.id);
-                return hasAdmin && botInGuild;
+                return (BigInt(g.permissions) & 0x20n) === 0x20n && client.guilds.cache.has(g.id);
             } catch {
                 return false;
             }
         });
         
-        // Add bot-specific info to each guild
-        const guildsWithBotInfo = guilds.map(guild => {
-            const botGuild = client.guilds.cache.get(guild.id);
-            return {
-                id: guild.id,
-                name: guild.name,
-                icon: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
-                owner: guild.owner,
-                permissions: guild.permissions,
-                botJoined: botGuild ? botGuild.joinedAt : null,
-                memberCount: botGuild ? botGuild.memberCount : 0
-            };
-        });
-        
-        res.json(guildsWithBotInfo);
+        res.json(mutual);
     } catch (e) {
-        console.error('Guilds error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch guilds' });
+        console.error('Mutual servers error:', e.message);
+        res.status(500).json([]);
     }
 });
 
-// === COMMANDS ENDPOINTS ===
-app.get('/api/commands/:guildId', authenticateUser, async (req, res) => {
+// Commands Management
+app.get('/api/commands/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
-        const commands = await redis.hgetall(`commands:${req.params.guildId}`);
-        const commandList = [];
-        
-        for (const [id, data] of Object.entries(commands)) {
+        const commands = await redis.hgetall('commands:' + req.params.guildId);
+        const cmdList = Object.values(commands).map(c => {
             try {
-                const command = JSON.parse(data);
-                commandList.push({
-                    id: id,
-                    ...command
-                });
-            } catch (e) {
-                console.error('Failed to parse command:', id);
+                return JSON.parse(c);
+            } catch {
+                return null;
             }
-        }
+        }).filter(c => c !== null);
         
-        res.json(commandList);
+        res.json(cmdList);
     } catch (e) {
         console.error('Commands fetch error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch commands' });
+        res.status(500).json([]);
     }
 });
 
-app.post('/api/commands/:guildId', authenticateUser, async (req, res) => {
+app.post('/api/save-command', authenticateUser, verifyGuildAccess, [
+    body('command.trigger').isString().trim().isLength({ min: 1, max: 100 }),
+    body('command.code').isString().trim().isLength({ max: 5000 }),
+    body('command.lang').isIn(['JavaScript', 'Python', 'Go']),
+    body('command.type').isIn(['Command (prefix)', 'Exact Match', 'Starts with'])
+], async (req, res) => {
     try {
-        const { guildId } = req.params;
-        const command = req.body;
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
         
-        if (!command.id) {
-            command.id = crypto.randomUUID();
+        const { guildId, command } = req.body;
+        const count = await redis.hlen('commands:' + guildId);
+        
+        if (!command.isEdit && count >= 100) {
+            return res.status(403).json({ error: 'Command limit reached' });
         }
         
-        if (!command.createdAt) {
-            command.createdAt = new Date().toISOString();
-        }
+        if (!command.id) command.id = crypto.randomUUID();
         
-        command.updatedAt = new Date().toISOString();
         command.createdBy = req.user.id;
+        command.createdAt = command.createdAt || new Date().toISOString();
+        command.updatedAt = new Date().toISOString();
         
-        await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
-        res.json({ success: true, id: command.id });
+        await redis.hset('commands:' + guildId, command.id, JSON.stringify(command));
+        res.json({ success: true, message: 'Command saved', id: command.id });
     } catch (e) {
         console.error('Save command error:', e.message);
         res.status(500).json({ error: 'Failed to save command' });
     }
 });
 
-app.delete('/api/commands/:guildId/:commandId', authenticateUser, async (req, res) => {
+app.delete('/api/command/:guildId/:cmdId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
-        await redis.hdel(`commands:${req.params.guildId}`, req.params.commandId);
-        res.json({ success: true });
+        await redis.hdel('commands:' + req.params.guildId, req.params.cmdId);
+        res.json({ success: true, message: 'Command deleted' });
     } catch (e) {
         console.error('Delete command error:', e.message);
         res.status(500).json({ error: 'Failed to delete command' });
     }
 });
 
-// === SETTINGS ENDPOINTS ===
-app.get('/api/settings/:guildId', authenticateUser, async (req, res) => {
+// Settings Management
+app.get('/api/settings/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
-        const prefix = await redis.get(`prefix:${req.params.guildId}`) || '!';
+        const prefix = await redis.get('prefix:' + req.params.guildId) || '!';
         res.json({ prefix });
     } catch (e) {
         console.error('Settings fetch error:', e.message);
@@ -251,177 +251,166 @@ app.get('/api/settings/:guildId', authenticateUser, async (req, res) => {
     }
 });
 
-app.post('/api/settings/:guildId', authenticateUser, async (req, res) => {
+app.post('/api/settings/:guildId', authenticateUser, verifyGuildAccess, [
+    body('prefix').isString().trim().isLength({ min: 1, max: 5 })
+], async (req, res) => {
     try {
-        const { prefix } = req.body;
-        if (!prefix || prefix.length > 5) {
-            return res.status(400).json({ error: 'Prefix must be 1-5 characters' });
-        }
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
         
-        await redis.set(`prefix:${req.params.guildId}`, prefix);
-        res.json({ success: true });
+        await redis.set('prefix:' + req.params.guildId, req.body.prefix);
+        res.json({ success: true, message: 'Settings saved' });
     } catch (e) {
         console.error('Settings save error:', e.message);
         res.status(500).json({ error: 'Failed to save settings' });
     }
 });
 
-// === DATABASE ENDPOINTS ===
-app.get('/api/database/:guildId', authenticateUser, async (req, res) => {
+// Database Management
+app.get('/api/db/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
-        const entries = await redis.hgetall(`db:${req.params.guildId}`);
-        const data = {};
+        const entries = await redis.hgetall('db:' + req.params.guildId);
+        const parsedEntries = {};
         
         for (const [key, value] of Object.entries(entries)) {
             try {
-                data[key] = JSON.parse(value);
+                parsedEntries[key] = JSON.parse(value);
             } catch {
-                data[key] = value;
+                parsedEntries[key] = value;
             }
         }
         
-        res.json(data);
+        res.json(parsedEntries);
     } catch (e) {
-        console.error('Database fetch error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch database' });
+        console.error('DB fetch error:', e.message);
+        res.status(500).json({});
     }
 });
 
-app.post('/api/database/:guildId', authenticateUser, async (req, res) => {
+app.post('/api/db/:guildId', authenticateUser, verifyGuildAccess, [
+    body('key').isString().trim().isLength({ min: 1, max: 100 }),
+    body('value').notEmpty()
+], async (req, res) => {
     try {
-        const { key, value } = req.body;
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
         
-        if (!key || key.length > 100) {
-            return res.status(400).json({ error: 'Key must be 1-100 characters' });
-        }
-        
-        await redis.hset(`db:${req.params.guildId}`, key, JSON.stringify(value));
-        res.json({ success: true });
+        await redis.hset('db:' + req.params.guildId, req.body.key, JSON.stringify(req.body.value));
+        res.json({ success: true, message: 'Entry saved' });
     } catch (e) {
-        console.error('Database save error:', e.message);
-        res.status(500).json({ error: 'Failed to save to database' });
+        console.error('DB save error:', e.message);
+        res.status(500).json({ error: 'Failed to save entry' });
     }
 });
 
-app.delete('/api/database/:guildId/:key', authenticateUser, async (req, res) => {
+app.delete('/api/db/:guildId/:key', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
-        await redis.hdel(`db:${req.params.guildId}`, req.params.key);
-        res.json({ success: true });
+        await redis.hdel('db:' + req.params.guildId, req.params.key);
+        res.json({ success: true, message: 'Entry deleted' });
     } catch (e) {
-        console.error('Database delete error:', e.message);
-        res.status(500).json({ error: 'Failed to delete from database' });
+        console.error('DB delete error:', e.message);
+        res.status(500).json({ error: 'Failed to delete entry' });
     }
 });
 
-// === STATUS ENDPOINT ===
+// System Status
 app.get('/api/status', async (req, res) => {
     try {
-        const botStatus = client.isReady() ? 'online' : 'offline';
-        const redisStatus = await redis.ping() === 'PONG' ? 'connected' : 'disconnected';
+        const botStatus = client.readyAt ? '🟢 Online' : '🔴 Offline';
+        const redisStatus = await redis.ping() === 'PONG' ? '🟢 Connected' : '🔴 Disconnected';
         const uptime = process.uptime();
         
         res.json({
-            bot: {
-                status: botStatus,
-                username: client.user?.tag || 'Not logged in',
-                guilds: client.guilds.cache.size,
-                uptime: Math.floor(uptime)
-            },
-            redis: {
-                status: redisStatus
-            },
-            system: {
-                uptime: Math.floor(uptime),
-                memory: process.memoryUsage(),
-                platform: process.platform,
-                node: process.version
-            }
+            bot: botStatus,
+            redis: redisStatus,
+            uptime: Math.floor(uptime / 60) + ' minutes',
+            guilds: client.guilds.cache.size,
+            errors: errorLog.slice(-10),
+            memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB'
         });
     } catch (e) {
-        console.error('Status error:', e.message);
-        res.status(500).json({ error: 'Failed to get status' });
+        console.error('Status check error:', e.message);
+        res.json({
+            bot: '🔴 Offline',
+            redis: '🔴 Disconnected',
+            uptime: '0 minutes',
+            guilds: 0,
+            errors: errorLog.slice(-10),
+            memory: '0 MB'
+        });
     }
 });
 
-// === TEST COMMAND ENDPOINT ===
-app.post('/api/test-command', authenticateUser, async (req, res) => {
+// Command Testing
+app.post('/api/test-command', authenticateUser, [
+    body('code').isString().trim().isLength({ max: 5000 }),
+    body('lang').isIn(['JavaScript', 'Python', 'Go'])
+], async (req, res) => {
     try {
-        const { code, language } = req.body;
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
         
-        if (!code) {
-            return res.status(400).json({ error: 'No code provided' });
-        }
-        
+        const { code, lang } = req.body;
         let output = '';
         
-        if (language === 'javascript' || language === 'JavaScript') {
+        if (lang === 'JavaScript') {
             const vm = new NodeVM({
-                timeout: 5000,
+                timeout: 3000,
                 sandbox: {
-                    console: {
-                        log: (...args) => {
-                            output += args.map(arg => String(arg)).join(' ') + '\n';
-                        }
+                    console: { 
+                        log: (msg) => { output += msg + '\n'; } 
                     }
                 },
-                require: {
-                    external: false,
-                    builtin: ['*']
+                require: { 
+                    external: false, 
+                    builtin: ['*'] 
                 }
             });
             
             try {
                 vm.run(code);
                 res.json({ output: output || 'No output' });
-            } catch (error) {
-                res.json({ output: `Error: ${error.message}` });
+            } catch (e) {
+                res.json({ output: 'Error: ' + e.message });
             }
-        } else if (language === 'python' || language === 'Python') {
-            const tempFile = path.join(__dirname, `temp_${crypto.randomUUID()}.py`);
+        } else if (lang === 'Python') {
+            const randomId = crypto.randomUUID();
+            const tempFile = path.join(__dirname, 'temp_' + randomId + '.py');
             
             try {
                 fs.writeFileSync(tempFile, code);
-                exec(`timeout 5 python3 ${tempFile}`, (error, stdout, stderr) => {
+                exec('timeout 5 python3 ' + tempFile, (error, stdout, stderr) => {
                     output = stdout || stderr || 'No output';
-                    if (fs.existsSync(tempFile)) {
-                        fs.unlinkSync(tempFile);
-                    }
+                    cleanupTempFile(tempFile);
                     res.json({ output });
                 });
-            } catch (error) {
-                if (fs.existsSync(tempFile)) {
-                    fs.unlinkSync(tempFile);
-                }
-                res.json({ output: `Error: ${error.message}` });
+            } catch (e) {
+                cleanupTempFile(tempFile);
+                res.json({ output: 'Error: ' + e.message });
             }
-        } else if (language === 'go' || language === 'Go') {
-            const tempFile = path.join(__dirname, `temp_${crypto.randomUUID()}.go`);
+        } else if (lang === 'Go') {
+            const randomId = crypto.randomUUID();
+            const tempFile = path.join(__dirname, 'temp_' + randomId + '.go');
             
             try {
                 fs.writeFileSync(tempFile, code);
-                exec(`timeout 5 go run ${tempFile}`, (error, stdout, stderr) => {
+                exec('timeout 5 go run ' + tempFile, (error, stdout, stderr) => {
                     output = stdout || stderr || 'No output';
-                    if (fs.existsSync(tempFile)) {
-                        fs.unlinkSync(tempFile);
-                    }
+                    cleanupTempFile(tempFile);
                     res.json({ output });
                 });
-            } catch (error) {
-                if (fs.existsSync(tempFile)) {
-                    fs.unlinkSync(tempFile);
-                }
-                res.json({ output: `Error: ${error.message}` });
+            } catch (e) {
+                cleanupTempFile(tempFile);
+                res.json({ output: 'Error: ' + e.message });
             }
-        } else {
-            res.status(400).json({ error: 'Unsupported language' });
         }
     } catch (e) {
         console.error('Test command error:', e.message);
-        res.status(500).json({ error: 'Failed to test command' });
+        res.status(500).json({ output: 'Server Error' });
     }
 });
 
-// === DISCORD BOT MESSAGE HANDLER ===
+// Discord Message Handler
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     
@@ -429,12 +418,12 @@ client.on('messageCreate', async (message) => {
         const guildId = message.guild?.id;
         if (!guildId) return;
         
-        const prefix = await redis.get(`prefix:${guildId}`) || '!';
-        const commands = await redis.hgetall(`commands:${guildId}`);
+        const prefix = await redis.get('prefix:' + guildId) || '!';
+        const commands = await redis.hgetall('commands:' + guildId);
         
-        for (const [id, data] of Object.entries(commands)) {
+        for (const cmdData of Object.values(commands)) {
             try {
-                const command = JSON.parse(data);
+                const command = JSON.parse(cmdData);
                 let matches = false;
                 
                 if (command.type === 'Command (prefix)') {
@@ -446,30 +435,17 @@ client.on('messageCreate', async (message) => {
                 }
                 
                 if (matches) {
-                    // Check rate limit
-                    const userId = message.author.id;
-                    const key = `${userId}:${command.id}`;
-                    const now = Date.now();
-                    const lastUsed = rateLimit.get(key) || 0;
-                    const cooldown = command.cooldown || 2000;
-                    
-                    if (lastUsed && now - lastUsed < cooldown) {
-                        await message.reply(`⏰ Please wait ${Math.ceil((cooldown - (now - lastUsed)) / 1000)} seconds before using this command again!`);
-                        return;
+                    if (!checkRateLimit(message.author.id, command.id, command.cooldown || 2000)) {
+                        return message.reply('⏰ Please wait before using this command again!');
                     }
                     
-                    rateLimit.set(key, now);
-                    
-                    if (command.language === 'JavaScript' || command.language === 'javascript') {
+                    if (command.lang === 'JavaScript') {
                         const vm = new NodeVM({
                             timeout: 5000,
                             sandbox: {
                                 message: message,
                                 args: message.content.split(' ').slice(1),
-                                prefix: prefix,
-                                guild: message.guild,
-                                channel: message.channel,
-                                author: message.author
+                                prefix: prefix
                             },
                             require: {
                                 external: false,
@@ -480,17 +456,16 @@ client.on('messageCreate', async (message) => {
                         try {
                             const result = vm.run(command.code);
                             if (result && typeof result === 'string') {
-                                await message.reply(result);
+                                message.reply(result);
                             }
                         } catch (error) {
-                            console.error('Command execution error:', error);
-                            await message.reply('❌ Error executing command');
+                            message.reply('❌ Command execution error');
                         }
                     }
                     break;
                 }
             } catch (cmdError) {
-                console.error('Command error:', cmdError);
+                console.error('Command parsing error:', cmdError);
             }
         }
     } catch (error) {
@@ -498,80 +473,35 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// === DISCORD BOT EVENTS ===
-// Use only clientReady to avoid deprecation warning
-client.once('clientReady', () => {
-    console.log(`✅ Bot logged in as ${client.user.tag}`);
-    console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
+// Discord Bot Events
+client.once('ready', () => {
+    console.log('✅ Bot logged in as ' + client.user.tag);
+    console.log('📊 Serving ' + client.guilds.cache.size + ' guilds');
 });
 
-// Error handling for Discord client
-client.on('error', (error) => {
-    console.error('Discord client error:', error);
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log('🌐 Dashboard running on port ' + PORT);
+    console.log('🔗 Bot starting...');
 });
 
-client.on('warn', (info) => {
-    console.warn('Discord client warning:', info);
+// Login bot
+client.login(TOKEN).catch(error => {
+    console.error('❌ Bot login failed:', error);
+    process.exit(1);
 });
 
-// === START SERVER FUNCTION ===
-async function startServer() {
-    try {
-        // Start Express server first
-        const server = app.listen(PORT, HOST, () => {
-            console.log(`🌐 Dashboard running on http://${HOST}:${PORT}`);
-        });
-
-        // Start Discord bot
-        console.log('🤖 Starting Discord bot...');
-        await client.login(TOKEN);
-        
-        console.log('✅ All services started successfully');
-        
-        // Graceful shutdown
-        process.on('SIGTERM', () => {
-            console.log('SIGTERM received, shutting down gracefully...');
-            server.close(() => {
-                console.log('HTTP server closed');
-                client.destroy();
-                console.log('Discord bot disconnected');
-                process.exit(0);
-            });
-        });
-        
-        process.on('SIGINT', () => {
-            console.log('SIGINT received, shutting down...');
-            server.close(() => {
-                client.destroy();
-                process.exit(0);
-            });
-        });
-        
-        // Keep Redis connection alive
-        setInterval(async () => {
-            try {
-                await redis.ping();
-            } catch (error) {
-                console.error('Redis ping failed:', error);
-            }
-        }, 30000); // Ping every 30 seconds
-        
-    } catch (error) {
-        console.error('❌ Failed to start server:', error);
-        process.exit(1);
-    }
-}
-
-// === ERROR HANDLING MIDDLEWARE ===
+// Error handling
 app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    errorLog.push({
-        timestamp: new Date().toISOString(),
-        error: err.message,
-        stack: err.stack
-    });
+    console.error('❌ Server error:', err);
+    errorLog.push('Server error: ' + err.message);
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// === 404 HANDLER ===
-app.use((req, res) =>
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+});
+
+console.log('✅ Server starting...');
