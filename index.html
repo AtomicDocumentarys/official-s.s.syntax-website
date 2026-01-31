@@ -1,311 +1,298 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S.S. Syntax | Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
-    <style>
-        :root { --bg: #0b0e11; --side: #15191d; --card: #1c2127; --accent: #3ba55c; --err: #f04747; --text: #fff; --border: #2e3338; }
-        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-        
-        .sidebar { width: 260px; background: var(--side); border-right: 1px solid var(--border); transition: 0.3s; z-index: 1000; position: relative; }
-        .sidebar.closed { margin-left: -260px; }
-        .nav-item { padding: 15px 25px; cursor: pointer; color: #b9bbbe; border-left: 4px solid transparent; }
-        .nav-item.active { background: #202429; color: #fff; border-left-color: var(--accent); }
-        .nav-item.owner-only { display: none; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S.S. Syntax | Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
 
-        .main-content { flex: 1; display: flex; flex-direction: column; width: 100%; }
-        .top-bar { height: 60px; background: #0b0e11; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; }
-        
-        .user-menu { position: relative; display: flex; align-items: center; cursor: pointer; gap: 10px; }
-        .user-pfp { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--accent); }
-        .dropdown-content { display: none; position: absolute; right: 0; top: 100%; background: var(--side); border: 1px solid var(--border); min-width: 150px; border-radius: 4px; z-index: 1001; }
-        .dropdown-content div { padding: 12px; border-bottom: 1px solid var(--border); transition: 0.2s; }
-        .dropdown-content div:hover { background: #202429; }
-
-        .card { background: var(--card); border: 1px solid var(--border); padding: 25px; border-radius: 4px; margin-bottom: 20px; }
-        .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 4px; margin-bottom: 15px; box-sizing: border-box; }
-        .btn-green { background: var(--accent); color: #fff; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; }
-        .btn-red { background: var(--err); color: #fff; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; }
-        
-        #code-editor { height: 300px; border: 1px solid #333; margin-bottom: 10px; }
-        .multi-select { height: 120px; overflow-y: auto; background: #000; border: 1px solid #222; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
-        .view { display: none; max-width: 850px; margin: 0 auto; }
-        .view.active { display: block; }
-        .console { background: #000; color: #0f0; padding: 10px; border: 1px solid #333; height: 150px; overflow-y: auto; display: none; margin-top: 10px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); }
-        @media (max-width: 768px) { .sidebar { margin-left: -260px; } .sidebar:not(.closed) { margin-left: 0; } #menu-trigger { display: block !important; } }
-    </style>
+<style>
+:root { --bg:#0b0e11; --side:#15191d; --card:#1c2127; --accent:#3ba55c; --err:#f04747; --text:#fff; --border:#2e3338; }
+body { background:var(--bg); color:var(--text); font-family:sans-serif; margin:0; display:flex; height:100vh; overflow:hidden; }
+.sidebar { width:260px; background:var(--side); border-right:1px solid var(--border); transition:.3s; z-index:1000; position:relative; }
+.sidebar.closed { margin-left:-260px; }
+.nav-item { padding:15px 25px; cursor:pointer; color:#b9bbbe; border-left:4px solid transparent; }
+.nav-item.active { background:#202429; color:#fff; border-left-color:var(--accent); }
+.nav-item.owner-only,.nav-item.s-only { display:none; }
+.main-content { flex:1; display:flex; flex-direction:column; width:100%; overflow-y:auto; position:relative; z-index:1; }
+.top-bar { height:60px; background:#0b0e11; border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 20px; justify-content:space-between; flex-shrink:0; }
+.user-menu { position:relative; display:flex; align-items:center; cursor:pointer; gap:10px; }
+.user-pfp { width:32px; height:32px; border-radius:50%; border:2px solid var(--accent); }
+.dropdown-content { display:none; position:absolute; right:0; top:100%; background:var(--side); border:1px solid var(--border); min-width:150px; border-radius:4px; z-index:1001; }
+.dropdown-content div { padding:12px; border-bottom:1px solid var(--border); transition:.2s; }
+.dropdown-content div:hover { background:#202429; }
+.card { background:var(--card); border:1px solid var(--border); padding:25px; border-radius:4px; margin-bottom:20px; overflow:hidden; }
+.input-black { width:100%; background:#000; border:1px solid #333; color:#fff; padding:12px; border-radius:4px; margin-bottom:15px; box-sizing:border-box; }
+.btn-green { background:var(--accent); color:#fff; border:none; padding:12px 20px; border-radius:4px; cursor:pointer; font-weight:bold; }
+.btn-red { background:var(--err); color:#fff; border:none; padding:12px 20px; border-radius:4px; cursor:pointer; }
+#code-editor { height:300px; border:1px solid #333; margin-bottom:10px; }
+.view { display:none; max-width:850px; margin:20px auto; width:90%; }
+.view.active { display:block; }
+.console { background:#000; color:#0f0; padding:10px; border:1px solid #333; height:150px; overflow-y:auto; display:none; font-family:monospace; margin-top:10px; }
+@media (max-width:768px){ .sidebar{position:absolute;height:100%;} .sidebar.closed{margin-left:-260px;} #menu-trigger{display:block!important;} }
+</style>
 </head>
+
 <body>
+<div id="sidebar" class="sidebar closed">
+  <div style="padding:20px;font-weight:bold;color:var(--accent);">S.S. SYNTAX</div>
+  <div class="nav-item active" onclick="tab('home')">Home</div>
+  <div class="nav-item s-only" onclick="tab('commands')">Custom Commands</div>
+  <div class="nav-item s-only" onclick="tab('settings')">Server Settings</div>
+  <div class="nav-item owner-only" onclick="tab('status')">Status</div>
+</div>
 
-    <div id="sidebar" class="sidebar closed">
-        <div style="padding: 20px; font-weight: bold; color: var(--accent);">S.S. SYNTAX</div>
-        <div class="nav-item active" onclick="tab('home')">Home</div>
-        <div class="nav-item s-only" onclick="tab('commands')">Custom Commands</div>
-        <div class="nav-item s-only" onclick="tab('settings')">Server Settings</div>
-        <div class="nav-item owner-only" onclick="tab('status')">Status</div>
-        <div class="nav-item" onclick="tab('terms')">Terms</div>
-        <div class="nav-item" onclick="tab('privacy')">Privacy</div>
+<div class="main-content">
+  <div class="top-bar">
+    <div style="display:flex;align-items:center;gap:15px;">
+      <div id="menu-trigger" class="btn-green" style="padding:5px 10px;display:none;" onclick="toggleMenu()">☰</div>
+      <select id="guild-select" class="input-black" style="width:200px;margin:0;display:none;" onchange="loadServer()">
+        <option value="">Choose a Server</option>
+      </select>
     </div>
 
-    <div class="main-content">
-        <div class="top-bar">
-            <div style="display:flex; align-items:center; gap:15px;">
-                <div id="menu-trigger" class="btn-green" style="padding:5px 10px; display:none;" onclick="toggleMenu()">☰</div>
-                <select id="guild-select" class="input-black" style="width:250px; margin:0; display:none;" onchange="loadServer()">
-                    <option value="">Choose a Server</option>
-                </select>
-            </div>
-            
-            <div id="auth-section">
-                <button class="btn-green" onclick="login()">LOG IN WITH DISCORD</button>
-            </div>
-            <div id="user-section" class="user-menu" style="display:none;" onclick="toggleDropdown()">
-                <span id="user-name">User</span>
-                <img id="user-pfp" class="user-pfp" src="">
-                <div id="dropdown" class="dropdown-content">
-                    <div onclick="logout()">Logout</div>
-                    <div onclick="login()">Switch Account</div>
-                </div>
-            </div>
-            <button class="btn-green" onclick="toggleConsole()" style="display:none;" id="console-toggle">Toggle Console</button>
+    <div id="auth-section"><button class="btn-green" onclick="login()">LOG IN WITH DISCORD</button></div>
+
+    <div id="user-section" class="user-menu" style="display:none;" onclick="toggleDropdown()">
+      <span id="user-name">User</span>
+      <img id="user-pfp" class="user-pfp">
+      <div id="dropdown" class="dropdown-content"><div onclick="logout()">Logout</div></div>
+    </div>
+  </div>
+
+  <main>
+    <div id="v-home" class="view active"><div class="card"><h1>S.S. Syntax</h1><p>Ready to deploy.</p></div></div>
+
+    <div id="v-settings" class="view">
+      <div class="card">
+        <h2>Settings</h2>
+        <label>Prefix</label>
+        <input type="text" id="g-prefix" class="input-black">
+        <button class="btn-green" onclick="saveSettings()">Save Prefix</button>
+      </div>
+    </div>
+
+    <div id="v-commands" class="view">
+      <div id="list-view">
+        <div class="card">Commands: <span id="cmd-count">0</span></div>
+        <button class="btn-green" onclick="openEditor()">+ New Command</button>
+        <div id="cmd-list" style="margin-top:20px;"></div>
+      </div>
+
+      <div id="edit-view" style="display:none;">
+        <button class="btn-red" onclick="closeEditor()" style="margin-bottom:10px;">Back</button>
+        <div class="card">
+          <input type="text" id="c-trig" class="input-black" placeholder="Trigger (e.g. !hello)">
+          <select id="c-lang" class="input-black">
+            <option value="JavaScript">JavaScript</option>
+            <option value="Python">Python</option>
+          </select>
+          <div id="code-editor"></div>
+          <button id="save-btn" class="btn-green">Confirm Command</button>
+          <button class="btn-green" style="background:#444;" onclick="testCommand()">Run Local Test</button>
+          <div id="console" class="console"></div>
         </div>
-
-        <main>
-            <div id="v-home" class="view active">
-                <div class="card">
-                    <h1>Welcome to S.S. Syntax</h1>
-                    <p>S.S. Syntax is your unified hub for high-performance Discord automation. By using localized runtimes for JavaScript, Python, and Golang, we offer the flexibility of advanced coding without the overhead of hosting your own bot.</p>
-                    <a href="https://discord.com/api/oauth2/authorize?client_id=1466792124686008341&permissions=8&scope=bot" class="btn-green">ADD BOT TO SERVER</a>
-                </div>
-            </div>
-
-            <div id="v-settings" class="view">
-                <div class="card">
-                    <h2>Server Settings</h2>
-                    <label>Command Prefix</label>
-                    <input type="text" id="g-prefix" class="input-black" value="!">
-                    <button class="btn-green" onclick="saveSettings()">Save Settings</button>
-                </div>
-            </div>
-
-            <div id="v-commands" class="view">
-                <div id="list-view">
-                    <div class="card">Server Commands: <span id="cmd-count">0</span> / 100</div>
-                    <button class="btn-green" style="margin-bottom:20px;" onclick="openEditor()">+ Create New Command</button>
-                    <div id="cmd-list"></div>
-                </div>
-
-                <div id="edit-view" style="display:none;">
-                    <button onclick="closeEditor()" style="background:none; color:#888; border:none; cursor:pointer; margin-bottom:10px;"><- Back</button>
-                    <div class="card">
-                        <label>Language</label>
-                        <select id="c-lang" class="input-black"><option value="JavaScript">JavaScript</option><option value="Python">Python</option></select>
-                        <label>Trigger Type</label>
-                        <select id="c-type" class="input-black"><option value="Command (prefix)">Command (prefix)</option><option value="Exact Match">Exact Match</option><option value="Starts with">Starts with</option></select>
-                        <label>Trigger</label>
-                        <input type="text" id="c-trig" class="input-black">
-                        <div id="code-editor"></div>
-                        <label>Roles (optional)</label><div id="r-list" class="multi-select"></div>
-                        <label>Channels (optional)</label><div id="ch-list" class="multi-select"></div>
-                        <button id="save-btn" class="btn-green" onclick="save()">CONFIRM COMMAND</button>
-                        <button class="btn-green" onclick="testCommand()">Test Command</button>
-                        <div id="console" class="console"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div id="v-status" class="view">
-                <div class="card">
-                    <h2>Bot Status (Owner Only)</h2>
-                    <table>
-                        <tr><th>Component</th><th>Status</th></tr>
-                        <tr><td>Bot Online</td><td id="bot-status">Checking...</td></tr>
-                        <tr><td>Redis Connected</td><td id="redis-status">Checking...</td></tr>
-                        <tr><td>Recent Errors</td><td id="error-list">None</td></tr>
-                    </table>
-                </div>
-            </div>
-
-            <div id="v-terms" class="view">
-                <div class="card">
-                    <h2>Terms of Service</h2>
-                    <p>By using S.S. Syntax, you agree to use the bot responsibly. No malicious code, spamming, or violation of Discord's TOS. We are not liable for any issues.</p>
-                </div>
-            </div>
-
-            <div id="v-privacy" class="view">
-                <div class="card">
-                    <h2>Privacy Policy</h2>
-                    <p>We store command data in Redis for functionality. OAuth tokens are temporary and not stored long-term. Your data is not shared.</p>
-                </div>
-            </div>
-        </main>
+      </div>
     </div>
 
-    <script>
-        let token = localStorage.getItem('token');
-        let currentGuild = null;
-        let editor = null;
+    <div id="v-status" class="view">
+      <div class="card"><h2>System Status</h2><div id="bot-status">Checking...</div></div>
+    </div>
+  </main>
+</div>
 
-        function init() {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.has('token')) {
-                token = urlParams.get('token');
-                localStorage.setItem('token', token);
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-            if (token) {
-                fetchUser();
-            } else {
-                showAuth();
-            }
-        }
+<script>
+const BASE_URL = 'https://official-sssyntax-website-production.up.railway.app';
+let token = localStorage.getItem('token');
+let currentGuild = null, editor = null;
 
-        function fetchUser() {
-            fetch('https://official-sssyntax-website-production.up.railway.app/api/user-me', { headers: { Authorization: `Bearer ${token}` } })
-                .then(r => r.json())
-                .then(u => {
-                    document.getElementById('user-name').textContent = u.username;
-                    document.getElementById('user-pfp').src = `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png`;
-                    document.getElementById('auth-section').style.display = 'none';
-                    document.getElementById('user-section').style.display = 'flex';
-                    if (u.id === '1218997569359970454') {
-                        document.querySelectorAll('.owner-only').forEach(e => e.style.display = 'block');
-                    }
-                    fetchServers();
-                })
-                .catch(() => {
-                    alert('Login failed. Please try again.');
-                    logout();
-                });
-        }
+const userName = document.getElementById('user-name');
+const userPfp = document.getElementById('user-pfp');
+const authSection = document.getElementById('auth-section');
+const userSection = document.getElementById('user-section');
+const guildSelect = document.getElementById('guild-select');
+const cmdCount = document.getElementById('cmd-count');
+const cmdList = document.getElementById('cmd-list');
+const gPrefix = document.getElementById('g-prefix');
+const botStatus = document.getElementById('bot-status');
+const listView = document.getElementById('list-view');
+const editView = document.getElementById('edit-view');
+const cTrig = document.getElementById('c-trig');
+const cLang = document.getElementById('c-lang');
+const saveBtn = document.getElementById('save-btn');
+const consoleBox = document.getElementById('console');
+const dropdown = document.getElementById('dropdown');
+const sidebar = document.getElementById('sidebar');
 
-        function fetchServers() {
-            fetch('https://official-sssyntax-website-production.up.railway.app/api/mutual-servers', { headers: { Authorization: `Bearer ${token}` } })
-                .then(r => r.json())
-                .then(s => {
-                    const sel = document.getElementById('guild-select');
-                    sel.innerHTML = '<option value="">Choose a Server</option>';
-                    s.forEach(g => {
-                        const opt = document.createElement('option');
-                        opt.value = g.id;
-                        opt.textContent = g.name;
-                        sel.appendChild(opt);
-                    });
-                    document.getElementById('guild-select').style.display = 'block';
-                    document.querySelectorAll('.s-only').forEach(e => e.style.display = 'block');
-                });
-        }
+function authHeaders(extra={}) { return { ...extra, Authorization:`Bearer ${token}` }; }
 
-        function loadServer() {
-            currentGuild = document.getElementById('guild-select').value;
-            if (currentGuild) {
-                refreshCommands();
-                loadSettings();
-                loadStatus();
-            }
-        }
+function init(){
+  const params=new URLSearchParams(window.location.search);
+  if(params.has('token')){
+    token=params.get('token');
+    localStorage.setItem('token',token);
+    window.history.replaceState({},'',window.location.pathname);
+  }
+  if(token) fetchUser();
+}
 
-        function refreshCommands() {
-            fetch(`https://official-sssyntax-website-production.up.railway.app/api/commands/${currentGuild}`)
-                .then(r => r.json())
-                .then(c => {
-                    document.getElementById('cmd-count').textContent = c.length;
-                    const list = document.getElementById('cmd-list');
-                    list.innerHTML = '';
-                    c.forEach(cmd => {
-                        const div = document.createElement('div');
-                        div.className = 'card';
-                        div.innerHTML = `<strong>${cmd.trigger}</strong> (${cmd.lang}) <button class="btn-red" onclick="del('${cmd.id}')">Delete</button> <button class="btn-green" onclick="edit('${cmd.id}')">Edit</button>`;
-                        list.appendChild(div);
-                    });
-                });
-        }
+async function fetchUser(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/user-me`,{headers:authHeaders()});
+    if(!r.ok) throw new Error();
+    const u=await r.json();
+    userName.textContent=u.username;
+    userPfp.src=`https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png`;
+    authSection.style.display='none';
+    userSection.style.display='flex';
+    if(u.id==='1218997569359970454') document.querySelectorAll('.owner-only').forEach(e=>e.style.display='block');
+    fetchServers();
+  }catch{
+    alert("Login failed. Please try again.");
+    logout();
+  }
+}
 
-        function openEditor(id = null) {
-            document.getElementById('list-view').style.display = 'none';
-            document.getElementById('edit-view').style.display = 'block';
-            document.getElementById('console-toggle').style.display = 'block';
-            if (!editor) {
-                editor = ace.edit('code-editor');
-                editor.setTheme('ace/theme/monokai');
-                editor.session.setMode('ace/mode/javascript');
-            }
-            if (id) {
-                fetch(`https://official-sssyntax-website-production.up.railway.app/api/commands/${currentGuild}`)
-                    .then(r => r.json())
-                    .then(c => {
-                        const cmd = c.find(x => x.id === id);
-                        if (cmd) {
-                            document.getElementById('c-lang').value = cmd.lang;
-                            document.getElementById('c-type').value = cmd.type;
-                            document.getElementById('c-trig').value = cmd.trigger;
-                            editor.setValue(cmd.code);
-                            loadMeta(cmd.roles || [], cmd.channels || []);
-                            document.getElementById('save-btn').textContent = 'UPDATE COMMAND';
-                            document.getElementById('save-btn').onclick = () => save(true, id);
-                        }
-                    });
-            } else {
-                document.getElementById('c-lang').value = 'JavaScript';
-                document.getElementById('c-type').value = 'Command (prefix)';
-                document.getElementById('c-trig').value = '';
-                editor.setValue('');
-                loadMeta([], []);
-                document.getElementById('save-btn').textContent = 'CONFIRM COMMAND';
-                document.getElementById('save-btn').onclick = () => save();
-            }
-        }
+async function fetchServers(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/mutual-servers`,{headers:authHeaders()});
+    const s=await r.json();
+    guildSelect.innerHTML='<option value="">Choose a Server</option>';
+    s.forEach(g=>{
+      const o=document.createElement('option');
+      o.value=g.id; o.textContent=g.name;
+      guildSelect.appendChild(o);
+    });
+    guildSelect.style.display='block';
+    document.querySelectorAll('.s-only').forEach(e=>e.style.display='block');
+  }catch{ alert("Failed to load servers"); }
+}
 
-        function closeEditor() {
-            document.getElementById('edit-view').style.display = 'none';
-            document.getElementById('list-view').style.display = 'block';
-            document.getElementById('console-toggle').style.display = 'none';
-        }
+function loadServer(){ currentGuild=guildSelect.value; if(currentGuild){ refreshCommands(); loadSettings(); loadStatus(); } }
 
-        function loadMeta(roles, channels) {
-            fetch(`https://official-sssyntax-website-production.up.railway.app/api/guild-meta/${currentGuild}`)
-                .then(r => r.json())
-                .then(m => {
-                    const rList = document.getElementById('r-list');
-                    rList.innerHTML = '';
-                    m.roles.forEach(r => {
-                        const chk = document.createElement('input');
-                        chk.type = 'checkbox';
-                        chk.value = r.id;
-                        chk.checked = roles.includes(r.id);
-                        rList.appendChild(chk);
-                        rList.appendChild(document.createTextNode(r.name + ' '));
-                    });
-                    const chList = document.getElementById('ch-list');
-                    chList.innerHTML = '';
-                    m.channels.forEach(c => {
-                        const chk = document.createElement('input');
-                        chk.type = 'checkbox';
-                        chk.value = c.id;
-                        chk.checked = channels.includes(c.id);
-                        chList.appendChild(chk);
-                        chList.appendChild(document.createTextNode(c.name + ' '));
-                    });
-                });
-        }
+async function refreshCommands(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/commands/${currentGuild}`,{headers:authHeaders()});
+    if(!r.ok) throw new Error();
+    const c=await r.json();
+    cmdCount.textContent=c.length;
+    cmdList.innerHTML='';
+    c.forEach(cmd=>{
+      const d=document.createElement('div');
+      d.className='card';
+      d.innerHTML=`<strong>${cmd.trigger}</strong> (${cmd.lang})
+      <div style="float:right;">
+        <button onclick="editCommand('${cmd.id}')">Edit</button>
+        <button style="color:red;" onclick="deleteCommand('${cmd.id}')">Del</button>
+      </div>`;
+      cmdList.appendChild(d);
+    });
+  }catch{ alert("Could not load commands"); }
+}
 
-        function save(isEdit = false, id = null) {
-            const cmd = {
-                id: id || Date.now().toString(),
-                lang: document.getElementById('c-lang').value,
-                type: document.getElementById('c-type').value,
-                trigger: document.getElementById('c-trig').value,
-                code: editor.getValue(),
-                roles: Array.from(document.querySelectorAll('#r-list input:checked')).map(c => c.value),
-                channels: Array.from(document.querySelectorAll('#ch-list input:checked')).map(c => c.value),
-                isEdit
-            };
-            fetch('https://official-sssyntax-website-production.up.railway.app/api/save-command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ guildId: currentGuild, command: cmd
+async function loadSettings(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/settings/${currentGuild}`,{headers:authHeaders()});
+    const s=await r.json();
+    if(s.prefix) gPrefix.value=s.prefix;
+  }catch{}
+}
+
+async function saveSettings(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/settings/${currentGuild}`,{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({prefix:gPrefix.value})
+    });
+    if(!r.ok) throw new Error();
+    alert("Settings saved!");
+  }catch{ alert("Failed to save settings"); }
+}
+
+async function loadStatus(){
+  try{
+    const r=await fetch(`${BASE_URL}/api/status`,{headers:authHeaders()});
+    const s=await r.json();
+    botStatus.innerHTML=`Bot: ${s.bot}<br>Redis: ${s.redis}`;
+  }catch{ botStatus.textContent="Status unavailable"; }
+}
+
+function openEditor(id=null){
+  listView.style.display='none';
+  editView.style.display='block';
+  if(!editor){
+    editor=ace.edit('code-editor');
+    editor.setTheme('ace/theme/monokai');
+    editor.session.setMode('ace/mode/javascript');
+  }
+  if(!id){ cTrig.value=''; editor.setValue(''); }
+  saveBtn.onclick=()=>save(!!id,id);
+}
+
+cLang.addEventListener('change',e=>{
+  if(!editor) return;
+  editor.session.setMode(e.target.value==='Python'?'ace/mode/python':'ace/mode/javascript');
+});
+
+async function editCommand(id){
+  const r=await fetch(`${BASE_URL}/api/commands/${currentGuild}`,{headers:authHeaders()});
+  const c=await r.json();
+  const cmd=c.find(x=>x.id===id);
+  if(cmd){ openEditor(id); cTrig.value=cmd.trigger; cLang.value=cmd.lang; editor.setValue(cmd.code); }
+}
+
+async function deleteCommand(id){
+  if(confirm("Delete command?")){
+    await fetch(`${BASE_URL}/api/command/${currentGuild}/${id}`,{method:'DELETE',headers:authHeaders()});
+    refreshCommands();
+  }
+}
+
+function closeEditor(){ editView.style.display='none'; listView.style.display='block'; consoleBox.style.display='none'; }
+
+async function save(isEdit,id){
+  try{
+    const cmd={id:id||Date.now().toString(),trigger:cTrig.value,code:editor.getValue(),lang:cLang.value};
+    const r=await fetch(`${BASE_URL}/api/save-command`,{
+      method:'POST',
+      headers:authHeaders({'Content-Type':'application/json'}),
+      body:JSON.stringify({guildId:currentGuild,command:cmd})
+    });
+    if(!r.ok) throw new Error();
+    closeEditor(); refreshCommands();
+  }catch{ alert("Failed to save command"); }
+}
+
+function testCommand(){
+  consoleBox.style.display='block';
+  consoleBox.textContent='Testing...\n';
+  try{
+    if(cLang.value==='JavaScript'){
+      const log=m=>consoleBox.textContent+=m+'\n';
+      const reply=t=>consoleBox.textContent+='Reply: '+t+'\n';
+      const fakeConsole={log};
+      const fakeMessage={reply};
+      const fn=new Function('console','message','"use strict";\n'+editor.getValue());
+      fn(fakeConsole,fakeMessage);
+    }else consoleBox.textContent='Python requires server runtime.';
+  }catch(e){ consoleBox.textContent+='Error: '+e.message; }
+}
+
+function tab(v){
+  document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.getElementById('v-'+v).classList.add('active');
+  document.querySelector(`[onclick="tab('${v}')"]`).classList.add('active');
+  if(window.innerWidth<=768) toggleMenu();
+}
+
+function login(){ window.location.href=`${BASE_URL}/callback`; }
+function logout(){ localStorage.removeItem('token'); location.reload(); }
+function toggleDropdown(){ dropdown.style.display=dropdown.style.display==='block'?'none':'block'; }
+function toggleMenu(){ sidebar.classList.toggle('closed'); }
+
+window.onload=init;
+</script>
+</body>
+            </html>
