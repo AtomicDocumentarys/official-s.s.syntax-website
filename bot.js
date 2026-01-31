@@ -6,7 +6,7 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const Redis = require('ioredis');
 const axios = require('axios');
-const config = require('./config');
+const cors = require('cors');  // Added for potential CORS if needed
 
 const client = new Client({
     intents: [
@@ -20,12 +20,8 @@ const client = new Client({
 const app = express();
 const redis = new Redis(process.env.REDIS_URL);
 app.use(bodyParser.json());
+app.use(cors());  // Enable CORS for frontend requests
 app.use(express.static('.'));
-
-// OAuth Config (Add to config.js or env vars)
-const CLIENT_ID = process.env.CLIENT_ID || config.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET || config.CLIENT_SECRET;
-const REDIRECT_URI = process.env.REDIRECT_URI || config.REDIRECT_URI;
 
 // --- API ROUTES ---
 
@@ -93,26 +89,26 @@ app.get('/api/settings/:guildId', async (req, res) => {
     res.json({ prefix: p });
 });
 
-// OAuth Login Redirect
-app.get('/login', (req, res) => {
+// OAuth Callback (Secure server-side handling)
+app.get('/callback', (req, res) => {
     const code = req.query.code;
     if (!code) {
         // Redirect to Discord OAuth
-        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
+        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${process.env.CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
         res.redirect(oauthUrl);
     } else {
         // Exchange code for token
         axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
+            client_id: process.env.CLIENT_ID,
+            client_secret: process.env.CLIENT_SECRET,
             grant_type: 'authorization_code',
             code: code,
-            redirect_uri: REDIRECT_URI
+            redirect_uri: process.env.REDIRECT_URI
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(response => {
             const token = response.data.access_token;
-            // Redirect back to frontend with token (or store in session, but for simplicity, use a query param)
-            res.redirect(`/?token=${token}`);
+            // Redirect back to frontend with token (replace with your GitHub Pages URL)
+            res.redirect(`https://yourusername.github.io/sssyntax-dashboard/?token=${token}`);
         })
         .catch(err => res.status(500).send('OAuth failed'));
     }
@@ -149,12 +145,11 @@ client.on('messageCreate', async (message) => {
                         if (out) message.reply(out); 
                     });
                 }
-                // Log to console (can be fetched later if needed)
                 console.log(`Command executed: ${cmd.trigger}, Output: ${output}`);
             } catch (e) { console.error(e); }
         }
     }
 });
 
-client.login(process.env.TOKEN || config.TOKEN);
+client.login(process.env.TOKEN);
 app.listen(process.env.PORT || 80);
