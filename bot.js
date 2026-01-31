@@ -16,27 +16,34 @@ const client = new Client({
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379'); 
+
+// Redis connection with error handling to prevent crashes
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+redis.on('error', (err) => console.log('Redis Connection Error:', err));
 
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, '.')));
 
-// --- WEB SOCKETS ---
-io.on('connection', (socket) => {
-    socket.on('join-server', (guildId) => socket.join(guildId));
-});
-
+// --- HELPERS ---
 function sendLog(guildId, message) {
     io.to(guildId).emit('log', { timestamp: new Date().toLocaleTimeString(), message });
 }
 
-// --- API ---
+io.on('connection', (socket) => {
+    socket.on('join-server', (guildId) => {
+        if (guildId) socket.join(guildId);
+    });
+});
+
+// --- API ROUTES ---
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.get('/callback.html', (req, res) => res.sendFile(path.join(__dirname, 'callback.html')));
 
 app.get('/api/commands/:guildId', async (req, res) => {
-    const commands = await redis.hgetall(`commands:${req.params.guildId}`);
-    res.json(Object.values(commands).map(c => JSON.parse(c)));
+    try {
+        const commands = await redis.hgetall(`commands:${req.params.guildId}`);
+        res.json(Object.values(commands).map(c => JSON.parse(c)));
+    } catch (e) { res.json([]); }
 });
 
 app.post('/api/save-command', async (req, res) => {
@@ -63,23 +70,29 @@ app.post('/api/auth/exchange', async (req, res) => {
 // --- EXECUTION ---
 async function executeCode(code, context) {
     const vm = new VM({ timeout: 3000, sandbox: context });
-    try { return await vm.run(`(async () => { ${code} })()`); } 
-    catch (e) { return `Error: ${e.message}`; }
+    try { 
+        return await vm.run(`(async () => { ${code} })()`); 
+    } catch (e) { 
+        return `Error: ${e.message}`; 
+    }
 }
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
-    const commands = await redis.hgetall(`commands:${message.guild.id}`);
-    for (const id in commands) {
-        const cmd = JSON.parse(commands[id]);
-        if (message.content.startsWith('!' + cmd.name)) {
-            sendLog(message.guild.id, `Exec: !${cmd.name} by ${message.author.username}`);
-            const out = await executeCode(cmd.code, { user: message.author.username });
-            message.reply(`\`\`\`\n${out}\n\`\`\``);
-            sendLog(message.guild.id, `Output: ${out}`);
+    try {
+        const commands = await redis.hgetall(`commands:${message.guild.id}`);
+        for (const id in commands) {
+            const cmd = JSON.parse(commands[id]);
+            if (message.content.startsWith('!' + cmd.name)) {
+                sendLog(message.guild.id, `Triggered !${cmd.name}`);
+                const out = await executeCode(cmd.code, { user: message.author.username });
+                message.reply(`\`\`\`\n${out}\n\`\`\``);
+                sendLog(message.guild.id, `Result: ${out}`);
+            }
         }
-    }
+    } catch (e) { console.error(e); }
 });
 
 client.login(config.TOKEN);
 server.listen(process.env.PORT || 80, '0.0.0.0');
+                           
