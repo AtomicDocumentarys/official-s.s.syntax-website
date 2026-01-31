@@ -13,11 +13,11 @@
         .sidebar.closed { margin-left: -260px; }
         .nav-item { padding: 15px 25px; cursor: pointer; color: #b9bbbe; border-left: 4px solid transparent; }
         .nav-item.active { background: #202429; color: #fff; border-left-color: var(--accent); }
+        .nav-item.owner-only { display: none; }  /* Hidden by default */
 
         .main-content { flex: 1; display: flex; flex-direction: column; width: 100%; }
         .top-bar { height: 60px; background: #0b0e11; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; }
         
-        /* User Profile Dropdown */
         .user-menu { position: relative; display: flex; align-items: center; cursor: pointer; gap: 10px; }
         .user-pfp { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--accent); }
         .dropdown-content { display: none; position: absolute; right: 0; top: 100%; background: var(--side); border: 1px solid var(--border); min-width: 150px; border-radius: 4px; z-index: 1001; }
@@ -34,6 +34,8 @@
         .view { display: none; max-width: 850px; margin: 0 auto; }
         .view.active { display: block; }
         .console { background: #000; color: #0f0; padding: 10px; border: 1px solid #333; height: 150px; overflow-y: auto; display: none; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); }
     </style>
 </head>
 <body>
@@ -43,6 +45,7 @@
         <div class="nav-item active" onclick="tab('home')">Home</div>
         <div class="nav-item s-only" onclick="tab('commands')">Custom Commands</div>
         <div class="nav-item s-only" onclick="tab('settings')">Server Settings</div>
+        <div class="nav-item owner-only" onclick="tab('status')">Status</div>
         <div class="nav-item" onclick="tab('terms')">Terms</div>
         <div class="nav-item" onclick="tab('privacy')">Privacy</div>
     </div>
@@ -75,7 +78,7 @@
                 <div class="card">
                     <h1>Welcome to S.S. Syntax</h1>
                     <p>S.S. Syntax is your unified hub for high-performance Discord automation. By using localized runtimes for JavaScript, Python, and Golang, we offer the flexibility of advanced coding without the overhead of hosting your own bot.</p>
-                    <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot" class="btn-green">ADD BOT TO SERVER</a>
+                    <a href="https://discord.com/api/oauth2/authorize?client_id=1466792124686008341&permissions=8&scope=bot" class="btn-green">ADD BOT TO SERVER</a>
                 </div>
             </div>
 
@@ -101,4 +104,23 @@
                         <label>Language</label>
                         <select id="c-lang" class="input-black"><option value="JavaScript">JavaScript</option><option value="Python">Python</option></select>
                         <label>Trigger Type</label>
-                        <select id="c-type" class="input-black"><option value="Command (prefix)">Command (prefix)</option><option value="Exact Match">Exact Match</option><option value="Starts with">Starts
+                        <select id="c-type" class="input-black"><option value="Command (prefix)">Command (prefix)</option><option value="Exact Match">Exact Match</option><option value="Starts with">Starts with</option></select>
+                        <label>Trigger</label>
+                        <input type="text" id="c-trig" class="input-black">
+                        <div id="code-editor"></div>
+                        <label>Roles (optional)</label><div id="r-list" class="multi-select"></div>
+                        <label>Channels (optional)</label><div id="ch-list" class="multi-select"></div>
+                        <button id="save-btn" class="btn-green" onclick="save()">CONFIRM COMMAND</button>
+                        <button class="btn-green" onclick="testCommand()">Test Command</button>
+                        <div id="console" class="console"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="v-status" class="view">
+                <div class="card">
+                    <h2>Bot Status (Owner Only)</h2>
+                    <table>
+                        <tr><th>Component</th><th>Status</th></tr>
+                        <tr><td>Bot Online</td><td id="bot-status">Checking...</td></tr>
+                        <tr><td>
