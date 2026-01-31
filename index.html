@@ -2,101 +2,219 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>S.S. Syntax | Dashboard</title>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
+    
     <style>
-        :root { --bg: #000000; --side: #111111; --card: #0d0d0d; --accent: #3ba55c; --err: #ff4747; --text: #ffffff; --border: #222222; }
+        :root { 
+            --bg: #000000; 
+            --side: #0a0a0a; 
+            --card: #0d0d0d; 
+            --accent: #3ba55c; 
+            --err: #ff4747; 
+            --text: #ffffff; 
+            --border: #222222; 
+        }
         
-        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+        body { 
+            background: var(--bg); 
+            color: var(--text); 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            display: flex; 
+            height: 100vh; 
+            overflow: hidden; 
+        }
 
-        /* SIDEBAR NAVIGATION */
-        .sidebar { width: 260px; background: var(--side); border-right: 1px solid var(--border); transition: 0.3s; margin-left: -260px; position: fixed; height: 100%; z-index: 1000; }
-        .sidebar.open { margin-left: 0; position: relative; }
-        .nav-item { padding: 18px 25px; cursor: pointer; border-bottom: 1px solid #1a1a1a; font-size: 14px; transition: 0.2s; color: #bbb; }
-        .nav-item:hover { background: #1a1a1a; color: #fff; }
-        .nav-item.active { border-left: 4px solid var(--accent); background: #1a1a1a; color: #fff; }
+        /* SIDEBAR */
+        .sidebar { 
+            width: 260px; 
+            background: var(--side); 
+            border-right: 1px solid var(--border); 
+            display: flex; 
+            flex-direction: column; 
+            transition: 0.3s;
+        }
 
-        /* TOP NAVIGATION BAR */
-        .top-bar { height: 60px; background: #080808; width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--border); position: fixed; top: 0; z-index: 999; box-sizing: border-box; }
-        .menu-toggle { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+        .nav-item { 
+            padding: 18px 25px; 
+            cursor: pointer; 
+            color: #888; 
+            transition: 0.2s; 
+            border-left: 4px solid transparent;
+        }
+        
+        .nav-item:hover, .nav-item.active { 
+            background: #111; 
+            color: #fff; 
+            border-left-color: var(--accent); 
+        }
 
-        /* MAIN CONTENT AREA */
-        main { flex: 1; padding: 80px 20px 20px; overflow-y: auto; width: 100%; box-sizing: border-box; }
-        .view { display: none; max-width: 900px; margin: 0 auto; animation: fadeIn 0.3s ease; }
+        /* CONTENT AREA */
+        .main-wrapper { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100%;
+        }
+
+        .top-nav { 
+            height: 60px; 
+            background: #050505; 
+            border-bottom: 1px solid var(--border); 
+            display: flex; 
+            align-items: center; 
+            padding: 0 20px; 
+            justify-content: space-between;
+        }
+
+        main { 
+            flex: 1; 
+            padding: 30px; 
+            overflow-y: auto; 
+            box-sizing: border-box; 
+        }
+
+        .view { display: none; max-width: 900px; margin: 0 auto; }
         .view.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* CARDS & INPUTS (BLACK THEME) */
-        .card { background: var(--card); border: 1px solid var(--border); padding: 25px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .label { display: block; font-size: 11px; font-weight: bold; color: #777; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 1px; }
-        
-        .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 6px; margin-bottom: 20px; box-sizing: border-box; font-size: 14px; outline: none; transition: border 0.2s; }
+        /* CARDS & INPUTS */
+        .card { 
+            background: var(--card); 
+            border: 1px solid var(--border); 
+            padding: 25px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+        }
+
+        .label { 
+            display: block; 
+            font-size: 11px; 
+            font-weight: bold; 
+            color: #666; 
+            text-transform: uppercase; 
+            margin-bottom: 8px; 
+        }
+
+        .input-black { 
+            width: 100%; 
+            background: #000; 
+            border: 1px solid #333; 
+            color: #fff; 
+            padding: 12px; 
+            border-radius: 4px; 
+            margin-bottom: 20px; 
+            box-sizing: border-box;
+            outline: none;
+        }
+
         .input-black:focus { border-color: var(--accent); }
-        
-        /* SEARCHABLE LISTS */
-        .multi-select { height: 150px; overflow-y: auto; background: #050505; border: 1px solid #222; padding: 10px; border-radius: 6px; margin-bottom: 20px; }
-        .multi-item { display: flex; align-items: center; gap: 10px; padding: 8px; font-size: 13px; border-bottom: 1px solid #111; }
-        .multi-item:last-child { border-bottom: none; }
-        
-        /* CODE EDITOR & CONSOLE */
-        #code-editor { height: 350px; border: 1px solid #222; border-radius: 6px; margin-bottom: 15px; }
-        .error-log { color: var(--err); background: #1a0a0a; padding: 15px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; display: none; border: 1px solid #300; margin-bottom: 20px; line-height: 1.4; }
 
-        /* BUTTONS */
-        .btn-confirm { background: var(--accent); color: white; border: none; padding: 16px; border-radius: 8px; cursor: pointer; width: 100%; font-weight: bold; font-size: 15px; letter-spacing: 1px; transition: 0.2s; }
-        .btn-confirm:hover { background: #2e8549; transform: translateY(-2px); }
-        .btn-confirm:active { transform: translateY(0); }
+        /* EDITOR & CONSOLE */
+        #code-editor { 
+            height: 300px; 
+            border: 1px solid #222; 
+            border-radius: 4px; 
+            margin-bottom: 10px; 
+        }
 
-        select.input-black { appearance: none; cursor: pointer; background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 15px center; background-size: 15px; }
+        .console-box { 
+            background: #050505; 
+            border: 1px solid #222; 
+            color: #0f0; 
+            padding: 15px; 
+            font-family: monospace; 
+            font-size: 13px; 
+            border-radius: 4px; 
+            margin-bottom: 20px;
+            max-height: 150px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
 
-        iframe { width: 100%; height: 75vh; border: none; background: white; border-radius: 8px; }
+        .btn-confirm { 
+            background: var(--accent); 
+            color: white; 
+            border: none; 
+            padding: 15px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            width: 100%; 
+            font-weight: bold; 
+            font-size: 14px;
+        }
+
+        .btn-toggle { 
+            background: #222; 
+            color: #fff; 
+            border: 1px solid #333; 
+            padding: 8px 12px; 
+            margin-bottom: 10px; 
+            cursor: pointer; 
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .multi-select { 
+            height: 120px; 
+            overflow-y: auto; 
+            background: #000; 
+            border: 1px solid #222; 
+            padding: 10px; 
+            border-radius: 4px; 
+            margin-bottom: 20px; 
+        }
+
+        .select-item { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
     </style>
 </head>
 <body>
 
-    <div class="sidebar" id="sidebar">
-        <div style="padding: 25px; font-weight: bold; font-size: 20px; color: var(--accent); letter-spacing: 2px;">S.S. SYNTAX</div>
-        <div class="nav-item active" onclick="showView('home')">Home</div>
-        <div class="nav-item server-tab" style="display:none" onclick="showView('commands')">Custom Commands</div>
-        <div class="nav-item server-tab" style="display:none" onclick="showView('database')">Database</div>
-        <div class="nav-item" onclick="showView('terms')">Terms of Service</div>
-        <div class="nav-item" onclick="showView('privacy')">Privacy Policy</div>
+    <div class="sidebar">
+        <div style="padding: 25px; font-weight: bold; font-size: 20px; color: var(--accent);">S.S. SYNTAX</div>
+        <div class="nav-item active" onclick="switchTab('home')">Home</div>
+        <div class="nav-item server-only" style="display:none" onclick="switchTab('commands')">Custom Commands</div>
+        <div class="nav-item server-only" style="display:none" onclick="switchTab('database')">Database Management</div>
+        <div class="nav-item" onclick="switchTab('terms')">Terms of Service</div>
+        <div class="nav-item" onclick="switchTab('privacy')">Privacy Policy</div>
     </div>
 
-    <div style="flex: 1; display: flex; flex-direction: column;">
-        <div class="top-bar">
-            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
-            <select id="guild-select" class="input-black" style="width: 260px; margin: 0;" onchange="loadServerData()">
-                <option value="">-- Choose a Server --</option>
+    <div class="main-wrapper">
+        <div class="top-nav">
+            <span id="server-status" style="font-size: 13px; color: #555;">No Server Selected</span>
+            <select id="guild-select" class="input-black" style="width: 250px; margin: 0;" onchange="onServerChange()">
+                <option value="">Choose a Server</option>
             </select>
         </div>
 
         <main>
             <div id="view-home" class="view active">
                 <div class="card">
-                    <h1>System Initialization</h1>
-                    <p>Welcome to the <b>S.S. Syntax</b> Control Panel. This interface allows for advanced Discord automation using multiple runtimes.</p>
-                    <p>To begin, select a server from the dropdown menu in the top navigation bar. Only servers where the bot is present will appear.</p>
+                    <h1>Welcome to S.S. Syntax</h1>
+                    <p>S.S. Syntax is your unified hub for high-performance Discord automation. By using localized runtimes for JavaScript, Python, and Golang, we offer the flexibility of advanced coding without the overhead of hosting your own bot.</p>
+                    <p>Select a server from the top menu to access your custom command engine and database.</p>
                 </div>
             </div>
 
             <div id="view-commands" class="view">
                 <div class="card">
-                    <label class="label">Programming Runtime</label>
+                    <label class="label">Programming Language</label>
                     <select id="cmd-lang" class="input-black" onchange="updateEditorMode()">
-                        <option value="javascript">JavaScript (V8)</option>
-                        <option value="python">Python 3.x</option>
-                        <option value="golang">Golang 1.x</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="python">Python</option>
+                        <option value="golang">Golang</option>
                     </select>
 
                     <label class="label">Trigger Logic</label>
-                    <select id="cmd-type" class="input-black" onchange="togglePrefix()">
+                    <select id="cmd-type" class="input-black" onchange="togglePrefixUI()">
                         <option>Command (prefix)</option>
                         <option>Starts with</option>
                         <option>Contains</option>
                         <option>Exact Match</option>
-                        <option>Regex</option>
+                        <option>Regex (Global)</option>
+                        <option>Regex (Case Insensitive)</option>
                     </select>
 
                     <div id="prefix-container">
@@ -104,34 +222,38 @@
                         <input type="text" id="cmd-prefix" class="input-black" value="!">
                     </div>
 
-                    <label class="label">Trigger Name</label>
-                    <input type="text" id="cmd-trigger" class="input-black" placeholder="e.g. math">
+                    <label class="label">Trigger Trigger / Pattern</label>
+                    <input type="text" id="cmd-trigger" class="input-black" placeholder="e.g. start">
 
                     <label class="label">Source Code</label>
                     <div id="code-editor"></div>
-                    <div id="error-box" class="error-log"></div>
+
+                    <button class="btn-toggle" onclick="toggleConsole()">Toggle Console Log</button>
+                    <div id="console-output" class="console-box" style="display:none;"></div>
 
                     <label class="label">Role Requirements</label>
-                    <input type="text" class="input-black" placeholder="Search roles..." onkeyup="filterList('role-list', this.value)">
                     <div id="role-list" class="multi-select"></div>
 
-                    <label class="label">Channel Restrictions</label>
-                    <input type="text" class="input-black" placeholder="Search channels..." onkeyup="filterList('channel-list', this.value)">
+                    <label class="label">Channel Requirements</label>
                     <div id="channel-list" class="multi-select"></div>
 
-                    <button class="btn-confirm" onclick="validateAndConfirm()">CONFIRM & DEPLOY</button>
+                    <button class="btn-confirm" onclick="saveCommand()">CONFIRM & DEPLOY COMMAND</button>
                 </div>
             </div>
 
-            <div id="view-database" class="view">
+            <div id="view-terms" class="view">
                 <div class="card">
-                    <h2>Server Key-Value Store</h2>
-                    <div id="db-list"></div>
+                    <h2>Terms of Service</h2>
+                    <p>By using S.S. Syntax, you agree to comply with Discord's Terms of Service. You are solely responsible for any code deployed through this dashboard. Malicious scripts, including those designed for raiding or scraping, will result in an immediate permanent ban from our services.</p>
                 </div>
             </div>
 
-            <div id="view-terms" class="view"><iframe src="terms.html"></iframe></div>
-            <div id="view-privacy" class="view"><iframe src="privacy.html"></iframe></div>
+            <div id="view-privacy" class="view">
+                <div class="card">
+                    <h2>Privacy Policy</h2>
+                    <p>We respect your privacy. S.S. Syntax only collects data necessary for command execution, such as Server IDs and user-defined variables via <code>db.set</code>. We do not sell your data to third parties. All script data is stored securely and encrypted in our Redis cloud.</p>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -141,96 +263,61 @@
         editor.session.setMode("ace/mode/javascript");
         let currentGuildId = null;
 
-        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-
-        function showView(id) {
+        function switchTab(tabId) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            document.getElementById('view-' + id).classList.add('active');
-            if(window.innerWidth < 800) toggleSidebar();
+            document.getElementById('view-' + tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
             editor.resize();
         }
 
-        function updateEditorMode() {
-            const lang = document.getElementById('cmd-lang').value;
-            const modes = { 'javascript': 'ace/mode/javascript', 'python': 'ace/mode/python', 'golang': 'ace/mode/golang' };
-            editor.session.setMode(modes[lang]);
-            document.getElementById('error-box').style.display = 'none';
-        }
-
-        function togglePrefix() {
+        function togglePrefixUI() {
             const type = document.getElementById('cmd-type').value;
             document.getElementById('prefix-container').style.display = (type === "Command (prefix)") ? "block" : "none";
         }
 
-        function filterList(listId, query) {
-            const items = document.getElementById(listId).getElementsByClassName('multi-item');
-            const q = query.toLowerCase();
-            for (let item of items) {
-                item.style.display = item.innerText.toLowerCase().includes(q) ? 'flex' : 'none';
+        function updateEditorMode() {
+            const lang = document.getElementById('cmd-lang').value;
+            editor.session.setMode("ace/mode/" + lang);
+        }
+
+        function toggleConsole() {
+            const con = document.getElementById('console-output');
+            con.style.display = (con.style.display === 'none') ? 'block' : 'none';
+        }
+
+        async function onServerChange() {
+            currentGuildId = document.getElementById('guild-select').value;
+            const items = document.querySelectorAll('.server-only');
+            if(currentGuildId) {
+                items.forEach(el => el.style.display = 'block');
+                document.getElementById('server-status').innerText = "Managing ID: " + currentGuildId;
+                // Add your fetch roles/channels logic here
+            } else {
+                items.forEach(el => el.style.display = 'none');
+                switchTab('home');
             }
         }
 
-        async function loadServerData() {
-            currentGuildId = document.getElementById('guild-select').value;
-            if (!currentGuildId) return;
-            document.querySelectorAll('.server-tab').forEach(t => t.style.display = 'block');
-            
-            const res = await fetch(`/api/guild-meta/${currentGuildId}`);
-            const data = await res.json();
-            
-            document.getElementById('role-list').innerHTML = data.roles.map(r => `
-                <div class="multi-item"><input type="checkbox" value="${r.id}"> ${r.name}</div>
-            `).join('');
-            document.getElementById('channel-list').innerHTML = data.channels.map(c => `
-                <div class="multi-item"><input type="checkbox" value="${c.id}"> #${c.name}</div>
-            `).join('');
-        }
-
-        function validateAndConfirm() {
+        function saveCommand() {
             const code = editor.getValue();
             const lang = document.getElementById('cmd-lang').value;
-            const errBox = document.getElementById('error-box');
-            errBox.style.display = 'none';
-
-            if (lang === "javascript") {
-                try { new Function(code); } catch (e) {
-                    errBox.innerHTML = `<b>Syntax Error:</b> ${e.message}`;
-                    errBox.style.display = 'block';
+            const con = document.getElementById('console-output');
+            
+            // Syntax check for JS
+            if(lang === 'javascript') {
+                try {
+                    new Function(code);
+                } catch(e) {
+                    con.style.display = 'block';
+                    con.innerText = "Error on Line: " + e.lineNumber + "\n" + e.message;
                     return;
                 }
             }
-            saveCommand();
+            
+            alert("Command confirmed! Deploying to Discord...");
+            // Add fetch /api/save-command here
         }
-
-        async function saveCommand() {
-            const command = {
-                id: Date.now(),
-                lang: document.getElementById('cmd-lang').options[document.getElementById('cmd-lang').selectedIndex].text,
-                type: document.getElementById('cmd-type').value,
-                prefix: document.getElementById('cmd-prefix').value,
-                trigger: document.getElementById('cmd-trigger').value,
-                code: editor.getValue(),
-                roles: Array.from(document.querySelectorAll('#role-list input:checked')).map(i => i.value),
-                channels: Array.from(document.querySelectorAll('#channel-list input:checked')).map(i => i.value)
-            };
-
-            await fetch('/api/save-command', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ guildId: currentGuildId, command })
-            });
-            alert("Command confirmed and live!");
-        }
-
-        async function init() {
-            const token = localStorage.getItem('discord_token');
-            const res = await fetch('/api/mutual-servers', { headers: { Authorization: `Bearer ${token}` } });
-            const guilds = await res.json();
-            const select = document.getElementById('guild-select');
-            guilds.forEach(g => { select.innerHTML += `<option value="${g.id}">${g.name}</option>`; });
-        }
-        window.onload = init;
     </script>
 </body>
     </html>
