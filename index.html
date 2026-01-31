@@ -3,50 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S.S. Syntax | Unified Dashboard</title>
+    <title>S.S. Syntax | Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
     <style>
-        :root { --bg: #000; --side: #0a0a0a; --card: #0d0d0d; --accent: #3ba55c; --err: #ff4747; --text: #fff; --border: #222; }
-        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Layout */
-        .sidebar { width: 260px; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-        .main-container { flex: 1; display: flex; flex-direction: column; }
-        .top-bar { height: 60px; background: #050505; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; }
-        main { flex: 1; padding: 30px; overflow-y: auto; }
-        
-        /* Elements */
-        .nav-item { padding: 18px 25px; cursor: pointer; color: #888; border-left: 4px solid transparent; }
-        .nav-item.active { background: #111; color: #fff; border-left-color: var(--accent); }
-        .card { background: var(--card); border: 1px solid var(--border); padding: 25px; border-radius: 8px; margin-bottom: 20px; }
-        .view { display: none; max-width: 900px; margin: 0 auto; }
+        :root { --bg: #0b0e11; --side: #15191d; --card: #1c2127; --accent: #3ba55c; --err: #f04747; --text: #fff; --border: #2e3338; }
+        body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+
+        /* Sidebar & Menu Fixes */
+        .sidebar { width: 260px; background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; transition: 0.3s; z-index: 1000; }
+        .sidebar.closed { margin-left: -260px; }
+        .nav-item { padding: 15px 25px; cursor: pointer; color: #b9bbbe; transition: 0.2s; border-left: 4px solid transparent; }
+        .nav-item:hover, .nav-item.active { background: #202429; color: #fff; border-left-color: var(--accent); }
+
+        .main-content { flex: 1; display: flex; flex-direction: column; width: 100%; }
+        .top-bar { height: 60px; background: #0b0e11; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 15px; }
+        .menu-toggle { cursor: pointer; font-size: 24px; color: var(--accent); }
+
+        main { flex: 1; padding: 20px; overflow-y: auto; }
+        .view { display: none; max-width: 850px; margin: 0 auto; }
         .view.active { display: block; }
+
+        /* YAGPDB Styling */
+        .card { background: var(--card); border: 1px solid var(--border); padding: 20px; border-radius: 4px; margin-bottom: 20px; }
+        .cmd-limit-box { background: #2f343a; padding: 15px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid var(--accent); }
+        .cmd-item { background: #202429; border: 1px solid var(--border); border-radius: 4px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; padding: 15px; }
         
-        .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 4px; margin-bottom: 20px; box-sizing: border-box; }
-        .label { display: block; font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
+        .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 4px; margin-bottom: 15px; box-sizing: border-box; outline: none; }
+        #code-editor { height: 350px; border: 1px solid #333; border-radius: 4px; margin-bottom: 10px; }
         
-        #code-editor { height: 320px; border: 1px solid #222; border-radius: 4px; margin-bottom: 10px; }
-        .console-box { background: #050505; border: 1px solid #222; color: #0f0; padding: 15px; font-family: monospace; font-size: 13px; border-radius: 4px; margin-bottom: 20px; white-space: pre-wrap; display: none; }
-        
-        .multi-select { height: 130px; overflow-y: auto; background: #000; border: 1px solid #222; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
-        .btn-confirm { background: var(--accent); color: white; border: none; padding: 16px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; }
-        .btn-toggle { background: #222; color: #fff; border: 1px solid #333; padding: 8px; cursor: pointer; border-radius: 4px; font-size: 11px; margin-bottom: 10px; }
+        .btn-green { background: var(--accent); color: #fff; border: none; padding: 12px 24px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-green:disabled { background: #2a5e3a; cursor: not-allowed; opacity: 0.6; }
+        .btn-danger { background: var(--err); color: #fff; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+        .btn-edit { background: #4f545c; color: #fff; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin-right: 10px; }
     </style>
 </head>
 <body>
 
-    <div class="sidebar">
-        <div style="padding: 25px; font-weight: bold; font-size: 20px; color: var(--accent);">S.S. SYNTAX</div>
+    <div id="mySidebar" class="sidebar">
+        <div style="padding: 20px; font-weight: bold; color: var(--accent); font-size: 1.2rem;">S.S. SYNTAX</div>
         <div class="nav-item active" onclick="tab('home')">Home</div>
         <div class="nav-item s-only" style="display:none" onclick="tab('commands')">Custom Commands</div>
-        <div class="nav-item s-only" style="display:none" onclick="tab('database')">Database</div>
         <div class="nav-item" onclick="tab('terms')">Terms of Service</div>
         <div class="nav-item" onclick="tab('privacy')">Privacy Policy</div>
     </div>
 
-    <div class="main-container">
+    <div class="main-content">
         <div class="top-bar">
-            <span id="s-label" style="color:#555">Disconnected</span>
+            <div class="menu-toggle" onclick="toggleMenu()">☰</div>
             <select id="guild-select" class="input-black" style="width:250px; margin:0;" onchange="loadServer()">
                 <option value="">Choose a Server</option>
             </select>
@@ -55,119 +58,134 @@
         <main>
             <div id="v-home" class="view active">
                 <div class="card">
-                    <h1>Control Center</h1>
-                    <p>Select a server to begin coding your automation scripts.</p>
+                    <h1>Welcome to S.S. Syntax</h1>
+                    <p>S.S. Syntax is your unified hub for high-performance Discord automation. By using localized runtimes for JavaScript, Python, and Golang, we offer the flexibility of advanced coding without the overhead of hosting your own bot.</p>
+                    <p>Select a server from the top menu to access your custom command engine and database.</p>
                 </div>
             </div>
 
             <div id="v-commands" class="view">
-                <div class="card">
-                    <label class="label">Runtime</label>
-                    <select id="c-lang" class="input-black" onchange="upEditor()">
-                        <option value="javascript">JavaScript</option>
-                        <option value="python">Python</option>
-                        <option value="golang">Golang</option>
-                    </select>
-
-                    <label class="label">Trigger</label>
-                    <select id="c-type" class="input-black" onchange="upPrefix()">
-                        <option>Command (prefix)</option>
-                        <option>Starts with</option>
-                        <option>Contains</option>
-                        <option>Regex (Case Insensitive)</option>
-                    </select>
-
-                    <div id="pref-box">
-                        <label class="label">Prefix</label>
-                        <input type="text" id="c-pref" class="input-black" value="!">
+                <div id="list-container">
+                    <div class="cmd-limit-box">
+                        You have created <span id="cmd-count" style="color:var(--accent); font-weight:bold;">0</span> custom commands against the total limit of <b>100</b>.
                     </div>
+                    <button class="btn-green" style="width:100%; margin-bottom:20px;" onclick="openEditor()">Create a new Custom Command</button>
+                    <div id="commands-list"></div>
+                </div>
 
-                    <label class="label">Trigger Pattern</label>
-                    <input type="text" id="c-trig" class="input-black" placeholder="e.g. test">
-
-                    <label class="label">Code</label>
-                    <div id="code-editor"></div>
-
-                    <button class="btn-toggle" onclick="togCon()">Toggle Console Log</button>
-                    <div id="con-out" class="console-box"></div>
-
-                    <label class="label">Roles</label>
-                    <input type="text" class="input-black" placeholder="Search..." onkeyup="search('r-list', this.value)">
-                    <div id="r-list" class="multi-select"></div>
-
-                    <label class="label">Channels</label>
-                    <input type="text" class="input-black" placeholder="Search..." onkeyup="search('ch-list', this.value)">
-                    <div id="ch-list" class="multi-select"></div>
-
-                    <button class="btn-confirm" onclick="save()">CONFIRM & DEPLOY</button>
+                <div id="editor-container" style="display:none;">
+                    <button class="btn-edit" onclick="closeEditor()" style="margin-bottom:10px;">← Back to List</button>
+                    <div class="card">
+                        <label>Language</label>
+                        <select id="c-lang" class="input-black" onchange="changeLang()"><option value="javascript">JavaScript</option><option value="python">Python</option></select>
+                        <label>Trigger</label>
+                        <input type="text" id="c-trig" class="input-black" placeholder="e.g. math">
+                        <div id="code-editor"></div>
+                        <button id="save-btn" class="btn-green" onclick="save()" style="width:100%">CONFIRM COMMAND</button>
+                    </div>
                 </div>
             </div>
-
-            <div id="v-terms" class="view">
-                <div class="card">
-                    <h2>Terms of Service</h2>
-                    <p>By using this service, you agree not to use malicious code. You are responsible for all bot interactions.</p>
-                </div>
-            </div>
-
-            <div id="v-privacy" class="view">
-                <div class="card">
-                    <h2>Privacy Policy</h2>
-                    <p>We only store Server IDs and Command logic. We do not sell user data. Database is stored in Redis.</p>
-                </div>
-            </div>
+            
+            <div id="v-terms" class="view"><div class="card"><h2>Terms</h2><p>Legal content here...</p></div></div>
+            <div id="v-privacy" class="view"><div class="card"><h2>Privacy</h2><p>Legal content here...</p></div></div>
         </main>
     </div>
 
     <script>
         let editor = ace.edit("code-editor");
         editor.setTheme("ace/theme/monokai");
-        editor.session.setMode("ace/mode/javascript");
-        let gid = null;
+        let gid = null; let editingId = null;
 
-        function tab(n) {
+        // SIDEBAR TOGGLE
+        function toggleMenu() { document.getElementById("mySidebar").classList.toggle("closed"); }
+
+        function tab(t) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            document.getElementById('v-' + n).classList.add('active');
+            document.getElementById('v-' + t).classList.add('active');
             event.currentTarget.classList.add('active');
-            editor.resize();
+            if (window.innerWidth < 800) toggleMenu(); // Close on click for mobile
+            if (t === 'commands') closeEditor();
         }
 
-        function togCon() {
-            const c = document.getElementById('con-out');
-            c.style.display = c.style.display === 'block' ? 'none' : 'block';
+        function changeLang() {
+            const lang = document.getElementById('c-lang').value;
+            editor.session.setMode("ace/mode/" + lang);
         }
 
-        function upEditor() { editor.session.setMode("ace/mode/" + document.getElementById('c-lang').value); }
-        function upPrefix() { document.getElementById('pref-box').style.display = (document.getElementById('c-type').value === "Command (prefix)") ? "block" : "none"; }
-        function search(id, q) {
-            const items = document.getElementById(id).children;
-            for(let i of items) i.style.display = i.innerText.toLowerCase().includes(q.toLowerCase()) ? 'flex' : 'none';
-        }
+        // ERROR BLOCKER
+        editor.getSession().on('changeAnnotation', function() {
+            const annotations = editor.getSession().getAnnotations();
+            const hasError = annotations.some(a => a.type === "error");
+            document.getElementById('save-btn').disabled = hasError;
+        });
 
         async function loadServer() {
             gid = document.getElementById('guild-select').value;
             if(!gid) return;
             document.querySelectorAll('.s-only').forEach(e => e.style.display = 'block');
-            document.getElementById('s-label').innerText = "Active: " + gid;
-            const res = await fetch('/api/guild-meta/' + gid);
-            const data = await res.json();
-            document.getElementById('r-list').innerHTML = data.roles.map(r => `<div class="select-item"><input type="checkbox" value="${r.id}"> ${r.name}</div>`).join('');
-            document.getElementById('ch-list').innerHTML = data.channels.map(c => `<div class="select-item"><input type="checkbox" value="${c.id}"> #${c.name}</div>`).join('');
+            refreshCommands();
         }
 
-        function save() {
-            const code = editor.getValue();
-            const lang = document.getElementById('c-lang').value;
-            const con = document.getElementById('con-out');
-            if(lang === 'javascript') {
-                try { new Function(code); } catch(e) {
-                    con.style.display = 'block';
-                    con.innerText = "Syntax Error: " + e.message;
-                    return;
-                }
+        async function refreshCommands() {
+            const res = await fetch('/api/commands/' + gid);
+            const cmds = await res.json();
+            document.getElementById('cmd-count').innerText = cmds.length;
+            const list = document.getElementById('commands-list');
+            list.innerHTML = cmds.map(c => `
+                <div class="cmd-item">
+                    <span>#${c.id.slice(-4)} - Command: <b>${c.trigger}</b></span>
+                    <div>
+                        <button class="btn-edit" onclick='openEditor(${JSON.stringify(c)})'>Edit</button>
+                        <button class="btn-danger" onclick="del('${c.id}')">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openEditor(cmd = null) {
+            document.getElementById('list-container').style.display = 'none';
+            document.getElementById('editor-container').style.display = 'block';
+            if(cmd) {
+                editingId = cmd.id;
+                document.getElementById('c-trig').value = cmd.trigger;
+                editor.setValue(cmd.code);
+            } else {
+                editingId = null;
+                document.getElementById('c-trig').value = '';
+                editor.setValue('');
             }
-            alert("Command Deployed!");
+            changeLang();
+        }
+
+        function closeEditor() {
+            document.getElementById('list-container').style.display = 'block';
+            document.getElementById('editor-container').style.display = 'none';
+            refreshCommands();
+        }
+
+        async function save() {
+            const cmd = {
+                id: editingId || Date.now().toString(),
+                isEdit: !!editingId,
+                lang: document.getElementById('c-lang').options[document.getElementById('c-lang').selectedIndex].text,
+                type: "Command (prefix)",
+                trigger: document.getElementById('c-trig').value,
+                code: editor.getValue()
+            };
+            await fetch('/api/save-command', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ guildId: gid, command: cmd })
+            });
+            closeEditor();
+        }
+
+        async function del(id) {
+            if(confirm("Delete command?")) {
+                await fetch(`/api/command/${gid}/${id}`, { method: 'DELETE' });
+                refreshCommands();
+            }
         }
 
         async function init() {
@@ -180,4 +198,4 @@
     </script>
 </body>
     </html>
-    
+                
