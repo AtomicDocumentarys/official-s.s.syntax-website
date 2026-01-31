@@ -18,7 +18,11 @@ const client = new Client({
 });
 
 const app = express();
-const redis = new Redis(process.env.REDIS_URL);
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+console.log('Using REDIS_URL:', redisUrl);  // Debug: Check logs for this
+const redis = new Redis(redisUrl);
+redis.on('connect', () => console.log('Redis connected successfully!'));
+redis.on('error', (err) => console.error('Redis Error:', err));
 app.use(bodyParser.json());
 app.use(cors());
 app.use(express.static('.'));
@@ -63,32 +67,57 @@ app.get('/api/guild-meta/:guildId', async (req, res) => {
 });
 
 app.get('/api/commands/:guildId', async (req, res) => {
-    const commands = await redis.hgetall(`commands:${req.params.guildId}`);
-    const cmdList = Object.values(commands).map(c => JSON.parse(c));
-    res.json(cmdList);
+    try {
+        const commands = await redis.hgetall(`commands:${req.params.guildId}`);
+        const cmdList = Object.values(commands).map(c => JSON.parse(c));
+        res.json(cmdList);
+    } catch (e) {
+        errorLog.push(`Commands fetch error: ${e.message}`);
+        res.status(500).json([]);
+    }
 });
 
 app.post('/api/save-command', async (req, res) => {
-    const { guildId, command } = req.body;
-    const count = await redis.hlen(`commands:${guildId}`);
-    if (!command.isEdit && count >= 100) return res.status(403).send("Limit reached");
-    await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
-    res.sendStatus(200);
+    try {
+        const { guildId, command } = req.body;
+        const count = await redis.hlen(`commands:${guildId}`);
+        if (!command.isEdit && count >= 100) return res.status(403).send("Limit reached");
+        await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
+        res.sendStatus(200);
+    } catch (e) {
+        errorLog.push(`Save command error: ${e.message}`);
+        res.status(500).send("Error saving");
+    }
 });
 
 app.delete('/api/command/:guildId/:cmdId', async (req, res) => {
-    await redis.hdel(`commands:${req.params.guildId}`, req.params.cmdId);
-    res.sendStatus(200);
+    try {
+        await redis.hdel(`commands:${req.params.guildId}`, req.params.cmdId);
+        res.sendStatus(200);
+    } catch (e) {
+        errorLog.push(`Delete command error: ${e.message}`);
+        res.status(500).send("Error deleting");
+    }
 });
 
 app.post('/api/settings/:guildId', async (req, res) => {
-    await redis.set(`prefix:${req.params.guildId}`, req.body.prefix);
-    res.sendStatus(200);
+    try {
+        await redis.set(`prefix:${req.params.guildId}`, req.body.prefix);
+        res.sendStatus(200);
+    } catch (e) {
+        errorLog.push(`Settings save error: ${e.message}`);
+        res.status(500).send("Error saving settings");
+    }
 });
 
 app.get('/api/settings/:guildId', async (req, res) => {
-    const p = await redis.get(`prefix:${req.params.guildId}`) || "!";
-    res.json({ prefix: p });
+    try {
+        const p = await redis.get(`prefix:${req.params.guildId}`) || "!";
+        res.json({ prefix: p });
+    } catch (e) {
+        errorLog.push(`Settings fetch error: ${e.message}`);
+        res.json({ prefix: "!" });
+    }
 });
 
 // New: Status endpoint for owner
@@ -131,40 +160,44 @@ app.get('/callback', (req, res) => {
 // --- DISCORD HANDLER ---
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
-    const commands = await redis.hgetall(`commands:${message.guild.id}`);
-    const globalPrefix = await redis.get(`prefix:${message.guild.id}`) || "!";
+    try {
+        const commands = await redis.hgetall(`commands:${message.guild.id}`);
+        const globalPrefix = await redis.get(`prefix:${message.guild.id}`) || "!";
 
-    for (const id in commands) {
-        const cmd = JSON.parse(commands[id]);
-        const trigger = cmd.trigger.toLowerCase();
-        const content = message.content.toLowerCase();
-        let match = false;
+        for (const id in commands) {
+            const cmd = JSON.parse(commands[id]);
+            const trigger = cmd.trigger.toLowerCase();
+            const content = message.content.toLowerCase();
+            let match = false;
 
-        if (cmd.type === "Command (prefix)" && content.startsWith(globalPrefix + trigger)) match = true;
-        else if (cmd.type === "Exact Match" && content === trigger) match = true;
-        else if (cmd.type === "Starts with" && content.startsWith(trigger)) match = true;
+            if (cmd.type === "Command (prefix)" && content.startsWith(globalPrefix + trigger)) match = true;
+            else if (cmd.type === "Exact Match" && content === trigger) match = true;
+            else if (cmd.type === "Starts with" && content.startsWith(trigger)) match = true;
 
-        if (match) {
-            if (cmd.roles?.length && !message.member.roles.cache.some(r => cmd.roles.includes(r.id))) continue;
-            if (cmd.channels?.length && !cmd.channels.includes(message.channel.id)) continue;
+            if (match) {
+                if (cmd.roles?.length && !message.member.roles.cache.some(r => cmd.roles.includes(r.id))) continue;
+                if (cmd.channels?.length && !cmd.channels.includes(message.channel.id)) continue;
 
-            try {
-                let output = '';
-                if (cmd.lang === "JavaScript") {
-                    const vm = new VM({ timeout: 1000, sandbox: { message, reply: (t) => { output += t + '\n'; message.reply(t); } } });
-                    vm.run(cmd.code);
-                } else if (cmd.lang === "Python") {
-                    exec(`python3 -c "${cmd.code.replace(/"/g, '\\"')}"`, (e, out, err) => { 
-                        output += out || err; 
-                        if (out) message.reply(out); 
-                    });
+                try {
+                    let output = '';
+                    if (cmd.lang === "JavaScript") {
+                        const vm = new VM({ timeout: 1000, sandbox: { message, reply: (t) => { output += t + '\n'; message.reply(t); } } });
+                        vm.run(cmd.code);
+                    } else if (cmd.lang === "Python") {
+                        exec(`python3 -c "${cmd.code.replace(/"/g, '\\"')}"`, (e, out, err) => { 
+                            output += out || err; 
+                            if (out) message.reply(out); 
+                        });
+                    }
+                    console.log(`Command executed: ${cmd.trigger}, Output: ${output}`);
+                } catch (e) { 
+                    errorLog.push(`Command execution error: ${e.message}`);
+                    console.error(e); 
                 }
-                console.log(`Command executed: ${cmd.trigger}, Output: ${output}`);
-            } catch (e) { 
-                errorLog.push(`Command execution error: ${e.message}`);
-                console.error(e); 
             }
         }
+    } catch (e) {
+        errorLog.push(`Message handler error: ${e.message}`);
     }
 });
 
