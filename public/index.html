@@ -600,7 +600,9 @@
                         <i class="fas fa-bars"></i>
                     </button>
                     
-                    <select id="guildSelect" class="input-black s-only hidden" style="width: 240px;" onchange="selectGuild()"></select>
+                    <select id="guildSelect" class="input-black s-only hidden" style="width: 240px;" onchange="selectGuild()">
+                        <option value="">Select a server...</option>
+                    </select>
                 </div>
                 
                 <div class="right-section" style="display: flex; align-items: center; gap: 16px;">
@@ -645,10 +647,10 @@
                                 <span>Get Started</span>
                             </button>
                             
-                            <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot" class="btn btn-success" target="_blank">
+                            <button class="btn btn-success" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=' + window.CLIENT_ID + '&permissions=8&scope=bot%20applications.commands', '_blank')">
                                 <i class="fas fa-plus"></i>
                                 <span>Add to Server</span>
-                            </a>
+                            </button>
                         </div>
                     </div>
                     
@@ -678,6 +680,4 @@
                     <div class="card">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <h2 style="margin: 0;">
-                                <i class="fas fa-code"></i> Custom Commands
-                            </h2>
-                            <button class="btn btn-primary" onclick="showCommandEdito
+                                <i class="fas fa-
