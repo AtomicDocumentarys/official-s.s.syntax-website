@@ -27,11 +27,13 @@
         .card { background: var(--card); border: 1px solid var(--border); padding: 25px; border-radius: 4px; margin-bottom: 20px; }
         .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 4px; margin-bottom: 15px; box-sizing: border-box; }
         .btn-green { background: var(--accent); color: #fff; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; }
+        .btn-red { background: var(--err); color: #fff; border: none; padding: 12px 20px; border-radius: 4px; cursor: pointer; }
         
         #code-editor { height: 300px; border: 1px solid #333; margin-bottom: 10px; }
         .multi-select { height: 120px; overflow-y: auto; background: #000; border: 1px solid #222; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
         .view { display: none; max-width: 850px; margin: 0 auto; }
         .view.active { display: block; }
+        .console { background: #000; color: #0f0; padding: 10px; border: 1px solid #333; height: 150px; overflow-y: auto; display: none; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -65,6 +67,7 @@
                     <div onclick="login()">Switch Account</div>
                 </div>
             </div>
+            <button class="btn-green" onclick="toggleConsole()" style="display:none;" id="console-toggle">Toggle Console</button>
         </div>
 
         <main>
@@ -96,83 +99,6 @@
                     <button onclick="closeEditor()" style="background:none; color:#888; border:none; cursor:pointer; margin-bottom:10px;"><- Back</button>
                     <div class="card">
                         <label>Language</label>
-                        <select id="c-lang" class="input-black"><option value="javascript">JavaScript</option><option value="python">Python</option></select>
-                        <label>Trigger</label>
-                        <input type="text" id="c-trig" class="input-black">
-                        <div id="code-editor"></div>
-                        <label>Roles</label><div id="r-list" class="multi-select"></div>
-                        <label>Channels</label><div id="ch-list" class="multi-select"></div>
-                        <button id="save-btn" class="btn-green" onclick="save()">CONFIRM COMMAND</button>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <script>
-        let editor = ace.edit("code-editor");
-        editor.setTheme("ace/theme/monokai");
-        let gid = null;
-
-        function toggleMenu() { document.getElementById('sidebar').classList.toggle('closed'); }
-        function toggleDropdown() { const d = document.getElementById('dropdown'); d.style.display = d.style.display === 'block' ? 'none' : 'block'; }
-        
-        function tab(t) {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('v-' + t).classList.add('active');
-            if(window.innerWidth < 800) toggleMenu();
-        }
-
-        function login() { window.location.href = "/login"; /* Replace with your Discord OAuth Link */ }
-        function logout() { localStorage.clear(); window.location.reload(); }
-
-        async function init() {
-            const t = localStorage.getItem('discord_token');
-            if (!t) return;
-
-            // Show UI
-            document.getElementById('auth-section').style.display = 'none';
-            document.getElementById('user-section').style.display = 'flex';
-            document.getElementById('sidebar').classList.remove('closed');
-            document.getElementById('menu-trigger').style.display = 'block';
-            document.getElementById('guild-select').style.display = 'block';
-
-            // Load User Data
-            const uRes = await fetch('/api/user-me', { headers: { Authorization: `Bearer ${t}` } });
-            const user = await uRes.json();
-            document.getElementById('user-name').innerText = user.global_name || user.username;
-            document.getElementById('user-pfp').src = `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`;
-
-            // Load Servers
-            const gRes = await fetch('/api/mutual-servers', { headers: { Authorization: `Bearer ${t}` } });
-            const guilds = await gRes.json();
-            guilds.forEach(g => { document.getElementById('guild-select').innerHTML += `<option value="${g.id}">${g.name}</option>`; });
-        }
-
-        async function loadServer() {
-            gid = document.getElementById('guild-select').value;
-            if(!gid) return;
-            const res = await fetch('/api/guild-meta/' + gid);
-            const data = await res.json();
-            document.getElementById('r-list').innerHTML = data.roles.map(r => `<div><input type="checkbox" value="${r.id}"> ${r.name}</div>`).join('');
-            document.getElementById('ch-list').innerHTML = data.channels.map(c => `<div><input type="checkbox" value="${c.id}"> #${c.name}</div>`).join('');
-            refreshCommands();
-        }
-
-        async function refreshCommands() {
-            const res = await fetch('/api/commands/' + gid);
-            const cmds = await res.json();
-            document.getElementById('cmd-count').innerText = cmds.length;
-            document.getElementById('cmd-list').innerHTML = cmds.map(c => `
-                <div style="background:#202429; padding:15px; margin-bottom:10px; display:flex; justify-content:space-between; border-radius:4px;">
-                    <span><b>${c.trigger}</b></span>
-                    <button onclick="del('${c.id}')" style="background:var(--err); color:white; border:none; padding:5px 10px; border-radius:4px;">Delete</button>
-                </div>
-            `).join('');
-        }
-
-        window.onload = init;
-    </script>
-</body>
-    </html>
-    
+                        <select id="c-lang" class="input-black"><option value="JavaScript">JavaScript</option><option value="Python">Python</option></select>
+                        <label>Trigger Type</label>
+                        <select id="c-type" class="input-black"><option value="Command (prefix)">Command (prefix)</option><option value="Exact Match">Exact Match</option><option value="Starts with">Starts
