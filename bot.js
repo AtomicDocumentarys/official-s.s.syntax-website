@@ -22,6 +22,11 @@ const redis = new Redis(process.env.REDIS_URL);
 app.use(bodyParser.json());
 app.use(express.static('.'));
 
+// OAuth Config (Add to config.js or env vars)
+const CLIENT_ID = process.env.CLIENT_ID || config.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET || config.CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI || config.REDIRECT_URI;
+
 // --- API ROUTES ---
 
 // Fetch User Profile
@@ -34,6 +39,7 @@ app.get('/api/user-me', async (req, res) => {
     } catch (e) { res.status(401).send("Unauthorized"); }
 });
 
+// Fetch Mutual Servers
 app.get('/api/mutual-servers', async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me/guilds', {
@@ -44,6 +50,7 @@ app.get('/api/mutual-servers', async (req, res) => {
     } catch (e) { res.status(500).json([]); }
 });
 
+// Fetch Guild Meta (Roles/Channels)
 app.get('/api/guild-meta/:guildId', async (req, res) => {
     const guild = client.guilds.cache.get(req.params.guildId);
     if (!guild) return res.status(404).json({ roles: [], channels: [] });
@@ -53,6 +60,14 @@ app.get('/api/guild-meta/:guildId', async (req, res) => {
     });
 });
 
+// Fetch Commands for Guild
+app.get('/api/commands/:guildId', async (req, res) => {
+    const commands = await redis.hgetall(`commands:${req.params.guildId}`);
+    const cmdList = Object.values(commands).map(c => JSON.parse(c));
+    res.json(cmdList);
+});
+
+// Save Command
 app.post('/api/save-command', async (req, res) => {
     const { guildId, command } = req.body;
     const count = await redis.hlen(`commands:${guildId}`);
@@ -61,6 +76,7 @@ app.post('/api/save-command', async (req, res) => {
     res.sendStatus(200);
 });
 
+// Delete Command
 app.delete('/api/command/:guildId/:cmdId', async (req, res) => {
     await redis.hdel(`commands:${req.params.guildId}`, req.params.cmdId);
     res.sendStatus(200);
@@ -75,6 +91,31 @@ app.post('/api/settings/:guildId', async (req, res) => {
 app.get('/api/settings/:guildId', async (req, res) => {
     const p = await redis.get(`prefix:${req.params.guildId}`) || "!";
     res.json({ prefix: p });
+});
+
+// OAuth Login Redirect
+app.get('/login', (req, res) => {
+    const code = req.query.code;
+    if (!code) {
+        // Redirect to Discord OAuth
+        const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
+        res.redirect(oauthUrl);
+    } else {
+        // Exchange code for token
+        axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: REDIRECT_URI
+        }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+        .then(response => {
+            const token = response.data.access_token;
+            // Redirect back to frontend with token (or store in session, but for simplicity, use a query param)
+            res.redirect(`/?token=${token}`);
+        })
+        .catch(err => res.status(500).send('OAuth failed'));
+    }
 });
 
 // --- DISCORD HANDLER ---
@@ -98,12 +139,18 @@ client.on('messageCreate', async (message) => {
             if (cmd.channels?.length && !cmd.channels.includes(message.channel.id)) continue;
 
             try {
+                let output = '';
                 if (cmd.lang === "JavaScript") {
-                    const vm = new VM({ timeout: 1000, sandbox: { message, reply: (t) => message.reply(t) } });
+                    const vm = new VM({ timeout: 1000, sandbox: { message, reply: (t) => { output += t + '\n'; message.reply(t); } } });
                     vm.run(cmd.code);
                 } else if (cmd.lang === "Python") {
-                    exec(`python3 -c "${cmd.code.replace(/"/g, '\\"')}"`, (e, out) => { if (out) message.reply(out); });
+                    exec(`python3 -c "${cmd.code.replace(/"/g, '\\"')}"`, (e, out, err) => { 
+                        output += out || err; 
+                        if (out) message.reply(out); 
+                    });
                 }
+                // Log to console (can be fetched later if needed)
+                console.log(`Command executed: ${cmd.trigger}, Output: ${output}`);
             } catch (e) { console.error(e); }
         }
     }
@@ -111,4 +158,3 @@ client.on('messageCreate', async (message) => {
 
 client.login(process.env.TOKEN || config.TOKEN);
 app.listen(process.env.PORT || 80);
-                                        
