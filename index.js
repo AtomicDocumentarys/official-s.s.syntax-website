@@ -23,6 +23,10 @@ const HOST = '0.0.0.0';
 // Check environment variables
 if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
     console.error('Missing environment variables');
+    console.error('TOKEN:', TOKEN ? 'OK' : 'MISSING');
+    console.error('CLIENT_ID:', CLIENT_ID ? 'OK' : 'MISSING');
+    console.error('CLIENT_SECRET:', CLIENT_SECRET ? 'OK' : 'MISSING');
+    console.error('REDIS_URL:', REDIS_URL ? 'OK' : 'MISSING');
     process.exit(1);
 }
 
@@ -56,9 +60,19 @@ app.use((req, res, next) => {
     next();
 });
 
-// === SERVE YOUR HTML DASHBOARD ===
+// === ROOT ENDPOINT ===
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// === HEALTH CHECK ===
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        bot: client.isReady() ? 'ready' : 'starting',
+        uptime: process.uptime()
+    });
 });
 
 // === DISCORD OAUTH ENDPOINTS ===
@@ -97,18 +111,24 @@ app.get('/callback', async (req, res) => {
 // === AUTHENTICATION MIDDLEWARE ===
 async function authenticateUser(req, res, next) {
     try {
-        const token = req.headers.authorization?.replace('Bearer ', '') || req.query.token;
-        
-        if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            // Check for token in query parameter
+            const token = req.query.token;
+            if (token) {
+                req.token = token;
+            } else {
+                return res.status(401).json({ error: 'No token provided' });
+            }
+        } else {
+            req.token = authHeader.replace('Bearer ', '');
         }
         
         const response = await axios.get('https://discord.com/api/users/@me', {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${req.token}` }
         });
         
         req.user = response.data;
-        req.token = token;
         next();
     } catch (e) {
         console.error('Auth error:', e.message);
@@ -146,7 +166,7 @@ app.get('/api/guilds', authenticateUser, async (req, res) => {
             return {
                 id: guild.id,
                 name: guild.name,
-                icon: guild.icon,
+                icon: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
                 owner: guild.owner,
                 permissions: guild.permissions,
                 botJoined: botGuild ? botGuild.joinedAt : null,
@@ -200,6 +220,7 @@ app.post('/api/commands/:guildId', authenticateUser, async (req, res) => {
         }
         
         command.updatedAt = new Date().toISOString();
+        command.createdBy = req.user.id;
         
         await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
         res.json({ success: true, id: command.id });
@@ -362,11 +383,15 @@ app.post('/api/test-command', authenticateUser, async (req, res) => {
                 fs.writeFileSync(tempFile, code);
                 exec(`timeout 5 python3 ${tempFile}`, (error, stdout, stderr) => {
                     output = stdout || stderr || 'No output';
-                    fs.unlinkSync(tempFile);
+                    if (fs.existsSync(tempFile)) {
+                        fs.unlinkSync(tempFile);
+                    }
                     res.json({ output });
                 });
             } catch (error) {
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                if (fs.existsSync(tempFile)) {
+                    fs.unlinkSync(tempFile);
+                }
                 res.json({ output: `Error: ${error.message}` });
             }
         } else if (language === 'go' || language === 'Go') {
@@ -376,11 +401,15 @@ app.post('/api/test-command', authenticateUser, async (req, res) => {
                 fs.writeFileSync(tempFile, code);
                 exec(`timeout 5 go run ${tempFile}`, (error, stdout, stderr) => {
                     output = stdout || stderr || 'No output';
-                    fs.unlinkSync(tempFile);
+                    if (fs.existsSync(tempFile)) {
+                        fs.unlinkSync(tempFile);
+                    }
                     res.json({ output });
                 });
             } catch (error) {
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                if (fs.existsSync(tempFile)) {
+                    fs.unlinkSync(tempFile);
+                }
                 res.json({ output: `Error: ${error.message}` });
             }
         } else {
@@ -417,13 +446,30 @@ client.on('messageCreate', async (message) => {
                 }
                 
                 if (matches) {
-                    if (command.language === 'javascript') {
+                    // Check rate limit
+                    const userId = message.author.id;
+                    const key = `${userId}:${command.id}`;
+                    const now = Date.now();
+                    const lastUsed = rateLimit.get(key) || 0;
+                    const cooldown = command.cooldown || 2000;
+                    
+                    if (lastUsed && now - lastUsed < cooldown) {
+                        await message.reply(`⏰ Please wait ${Math.ceil((cooldown - (now - lastUsed)) / 1000)} seconds before using this command again!`);
+                        return;
+                    }
+                    
+                    rateLimit.set(key, now);
+                    
+                    if (command.language === 'JavaScript' || command.language === 'javascript') {
                         const vm = new NodeVM({
                             timeout: 5000,
                             sandbox: {
                                 message: message,
                                 args: message.content.split(' ').slice(1),
-                                prefix: prefix
+                                prefix: prefix,
+                                guild: message.guild,
+                                channel: message.channel,
+                                author: message.author
                             },
                             require: {
                                 external: false,
@@ -437,6 +483,7 @@ client.on('messageCreate', async (message) => {
                                 await message.reply(result);
                             }
                         } catch (error) {
+                            console.error('Command execution error:', error);
                             await message.reply('❌ Error executing command');
                         }
                     }
@@ -451,17 +498,26 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// === DISCORD BOT EVENTS - FIXED: Using clientReady instead of ready ===
-// Remove the old 'ready' event and only use 'clientReady' to fix the warning
+// === DISCORD BOT EVENTS ===
+// Use only clientReady to avoid deprecation warning
 client.once('clientReady', () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
 });
 
-// === START SERVER ===
+// Error handling for Discord client
+client.on('error', (error) => {
+    console.error('Discord client error:', error);
+});
+
+client.on('warn', (info) => {
+    console.warn('Discord client warning:', info);
+});
+
+// === START SERVER FUNCTION ===
 async function startServer() {
     try {
-        // Start Express server
+        // Start Express server first
         const server = app.listen(PORT, HOST, () => {
             console.log(`🌐 Dashboard running on http://${HOST}:${PORT}`);
         });
@@ -474,26 +530,48 @@ async function startServer() {
         
         // Graceful shutdown
         process.on('SIGTERM', () => {
-            console.log('SIGTERM received, shutting down...');
+            console.log('SIGTERM received, shutting down gracefully...');
+            server.close(() => {
+                console.log('HTTP server closed');
+                client.destroy();
+                console.log('Discord bot disconnected');
+                process.exit(0);
+            });
+        });
+        
+        process.on('SIGINT', () => {
+            console.log('SIGINT received, shutting down...');
             server.close(() => {
                 client.destroy();
                 process.exit(0);
             });
         });
         
-        // Keep process alive
-        setInterval(() => {
-            if (redis.status !== 'ready') {
-                console.log('Reconnecting Redis...');
-                redis.connect().catch(() => {});
+        // Keep Redis connection alive
+        setInterval(async () => {
+            try {
+                await redis.ping();
+            } catch (error) {
+                console.error('Redis ping failed:', error);
             }
-        }, 60000); // Check every minute
+        }, 30000); // Ping every 30 seconds
         
     } catch (error) {
-        console.error('❌ Failed to start:', error);
+        console.error('❌ Failed to start server:', error);
         process.exit(1);
     }
 }
 
-// Start everything
-startServer();
+// === ERROR HANDLING MIDDLEWARE ===
+app.use((err, req, res, next) => {
+    console.error('Server error:', err);
+    errorLog.push({
+        timestamp: new Date().toISOString(),
+        error: err.message,
+        stack: err.stack
+    });
+    res.status(500).json({ error: 'Internal server error' });
+});
+
+// === 404 HANDLER ===
+app.use((req, res) =>
