@@ -1,23 +1,63 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const express = require('express');
 const bodyParser = require('body-parser');
-const { VM } = require('vm2'); // For JS
-const { exec } = require('child_process'); // For Python/Go
+const { VM } = require('vm2');
+const { exec } = require('child_process'); // For Python and Go
+const fs = require('fs');
 const Redis = require('ioredis');
 const axios = require('axios');
 const config = require('./config');
 
+// 1. Initialize Bot
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent
+    ]
 });
 
+// 2. Initialize Web Server & Redis
 const app = express();
 const redis = new Redis(process.env.REDIS_URL);
+let liveLogs = [];
 
 app.use(bodyParser.json());
 app.use(express.static('.'));
 
-// --- MUTUAL SERVER & DATA FETCHING ---
+// --- UTILITY: LOGGING ---
+function addLog(guildId, message) {
+    liveLogs.push({ guildId, timestamp: new Date().toLocaleTimeString(), message });
+    if (liveLogs.length > 50) liveLogs.shift();
+}
+
+// --- EXECUTION ENGINES ---
+async function runPython(code) {
+    return new Promise((resolve, reject) => {
+        // Escaping double quotes for the command line
+        const escapedCode = code.replace(/"/g, '\\"');
+        exec(`python3 -c "${escapedCode}"`, (error, stdout, stderr) => {
+            if (error) reject(stderr || error.message);
+            resolve(stdout);
+        });
+    });
+}
+
+async function runGo(code) {
+    return new Promise((resolve, reject) => {
+        const filename = `temp_${Date.now()}.go`;
+        fs.writeFileSync(filename, code);
+        exec(`go run ${filename}`, (error, stdout, stderr) => {
+            fs.unlinkSync(filename); // Clean up file after running
+            if (error) reject(stderr || error.message);
+            resolve(stdout);
+        });
+    });
+}
+
+// --- API ROUTES ---
+
+// Sync mutual servers
 app.get('/api/mutual-servers', async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me/guilds', {
@@ -28,7 +68,7 @@ app.get('/api/mutual-servers', async (req, res) => {
     } catch (e) { res.status(500).send("Sync Error"); }
 });
 
-// Fetch channels and roles for the selectors
+// Fetch roles and channels for the UI selectors
 app.get('/api/guild-meta/:guildId', (req, res) => {
     const guild = client.guilds.cache.get(req.params.guildId);
     if (!guild) return res.status(404).send("Guild not found");
@@ -38,64 +78,62 @@ app.get('/api/guild-meta/:guildId', (req, res) => {
     });
 });
 
-// --- COMMAND EXECUTION ENGINE ---
+app.post('/api/save-command', async (req, res) => {
+    const { guildId, command } = req.body;
+    await redis.hset(`commands:${guildId}`, command.id, JSON.stringify(command));
+    res.sendStatus(200);
+});
+
+// --- DISCORD MESSAGE HANDLER ---
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
+
     const commands = await redis.hgetall(`commands:${message.guild.id}`);
-    
     for (const id in commands) {
         const cmd = JSON.parse(commands[id]);
         let triggered = false;
-        const cleanContent = message.content.toLowerCase();
+        const content = message.content;
 
-        // Trigger Logic like YAGPDB
+        // Trigger logic
         if (cmd.type === "Command (prefix)") {
-            if (message.content.startsWith((cmd.prefix || "!") + cmd.trigger)) triggered = true;
+            if (content.startsWith((cmd.prefix || "!") + cmd.trigger)) triggered = true;
         } else if (cmd.type === "Starts with") {
-            if (cleanContent.startsWith(cmd.trigger.toLowerCase())) triggered = true;
+            if (content.toLowerCase().startsWith(cmd.trigger.toLowerCase())) triggered = true;
         } else if (cmd.type === "Contains") {
-            if (cleanContent.includes(cmd.trigger.toLowerCase())) triggered = true;
+            if (content.toLowerCase().includes(cmd.trigger.toLowerCase())) triggered = true;
         }
 
         if (triggered) {
             // Check Restrictions
-            if (cmd.roles?.length && !message.member.roles.cache.some(r => cmd.roles.includes(r.id))) continue;
-            if (cmd.channels?.length && !cmd.channels.includes(message.channel.id)) continue;
+            if (cmd.roles?.length > 0 && !message.member.roles.cache.some(r => cmd.roles.includes(r.id))) continue;
+            if (cmd.channels?.length > 0 && !cmd.channels.includes(message.channel.id)) continue;
 
-            if (cmd.lang === "JavaScript") {
-                const vm = new VM({ timeout: 2000, sandbox: { message, reply: (t) => message.reply(t) } });
-                try { await vm.run(cmd.code); } catch(e) {}
+            addLog(message.guild.id, `Running ${cmd.lang} command: ${cmd.trigger}`);
+
+            try {
+                let output = "";
+                if (cmd.lang === "JavaScript") {
+                    const vm = new VM({ timeout: 2000, sandbox: { message, reply: (t) => message.reply(t) } });
+                    output = await vm.run(cmd.code);
+                } else if (cmd.lang === "Python") {
+                    output = await runPython(cmd.code);
+                    if (output) message.reply(output);
+                } else if (cmd.lang === "Golang") {
+                    output = await runGo(cmd.code);
+                    if (output) message.reply(output);
+                }
+            } catch (err) {
+                addLog(message.guild.id, `Execution Error: ${err}`);
+                message.reply(`❌ Runtime Error:\n\`\`\`${err}\`\`\``);
             }
-            // Python/Go would use exec() logic here
         }
     }
 });
 
+// --- STARTUP ---
+client.on('ready', () => console.log(`Bot active: ${client.user.tag}`));
 client.login(config.TOKEN);
-app.listen(process.env.PORT || 80);
 
-const { exec } = require('child_process');
-
-// Example function to run Python code
-function runPython(code) {
-    return new Promise((resolve, reject) => {
-        // We pass the code as a string to the python3 command
-        exec(`python3 -c "${code.replace(/"/g, '\\"')}"`, (error, stdout, stderr) => {
-            if (error) reject(stderr);
-            resolve(stdout);
-        });
-    });
-}
-
-// Example function to run Go code
-function runGo(code) {
-    return new Promise((resolve, reject) => {
-        // Go usually requires a file to run quickly (go run)
-        const fs = require('fs');
-        fs.writeFileSync('temp.go', code);
-        exec(`go run temp.go`, (error, stdout, stderr) => {
-            if (error) reject(stderr);
-            resolve(stdout);
-        });
-    });
-}
+const PORT = process.env.PORT || 80;
+app.listen(PORT, '0.0.0.0', () => console.log(`Dashboard online on port ${PORT}`));
+        
