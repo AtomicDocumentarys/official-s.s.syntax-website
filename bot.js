@@ -90,4 +90,41 @@ client.on('messageCreate', async (message) => {
 client.login(config.TOKEN);
 const PORT = process.env.PORT || 80;
 app.listen(PORT, '0.0.0.0', () => console.log(`🚀 S.S. Syntax Online on Port ${PORT}`));
-        
+
+// ... (Keep existing imports from previous bot.js)
+
+// --- NEW API: CHECK IF BOT IS IN SERVER ---
+app.get('/api/check-bot/:guildId', (req, res) => {
+    const guild = client.guilds.cache.get(req.params.guildId);
+    if (!guild) return res.status(404).json({ error: "Bot is not in this server." });
+    res.json({ success: true });
+});
+
+// --- NEW API: GET ALL COMMANDS FOR SERVER ---
+app.get('/api/commands/:guildId', async (req, res) => {
+    const commands = await redis.hgetall(`commands:${req.params.guildId}`);
+    const commandList = Object.values(commands).map(c => JSON.parse(c));
+    res.json(commandList);
+});
+
+// --- NEW API: DELETE COMMAND ---
+app.post('/api/delete-command', async (req, res) => {
+    const { guildId, commandId } = req.body;
+    await redis.hdel(`commands:${guildId}`, commandId);
+    res.sendStatus(200);
+});
+
+// --- NEW API: DIAGNOSTICS (TEST CODE) ---
+app.post('/api/test-code', async (req, res) => {
+    const { language, code } = req.body;
+    try {
+        // Simple dry-run with mock context
+        await executeCode(language, code, { user: "Tester", content: "!test" });
+        res.json({ success: true });
+    } catch (err) {
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// ... (Rest of your bot.js logic remains)
+
