@@ -19,7 +19,7 @@ const client = new Client({
 
 const app = express();
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-console.log('Using REDIS_URL:', redisUrl);  // Debug: Check logs for this
+console.log('Using REDIS_URL:', redisUrl ? 'Set' : 'Not set');
 const redis = new Redis(redisUrl);
 redis.on('connect', () => console.log('Redis connected successfully!'));
 redis.on('error', (err) => console.error('Redis Error:', err));
@@ -27,11 +27,9 @@ app.use(bodyParser.json());
 app.use(cors());
 app.use(express.static('.'));
 
-// Simple error log (in-memory; use Redis for persistence in production)
 let errorLog = [];
 
-// --- API ROUTES ---
-
+// API Routes (unchanged)
 app.get('/api/user-me', async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me', {
@@ -120,16 +118,15 @@ app.get('/api/settings/:guildId', async (req, res) => {
     }
 });
 
-// New: Status endpoint for owner
 app.get('/api/status', async (req, res) => {
     try {
-        const botStatus = client.readyAt ? 'Online' : 'Not there';
-        const redisStatus = await redis.ping() === 'PONG' ? 'Connected' : 'Not there';
-        const errors = errorLog.slice(-10);  // Last 10 errors
+        const botStatus = client.readyAt ? 'Online' : 'Offline';
+        const redisStatus = await redis.ping() === 'PONG' ? 'Connected' : 'Disconnected';
+        const errors = errorLog.slice(-10);
         res.json({ bot: botStatus, redis: redisStatus, errors });
     } catch (e) {
         errorLog.push(`Status check error: ${e.message}`);
-        res.status(500).json({ bot: 'Not there', redis: 'Not there', errors: errorLog.slice(-10) });
+        res.status(500).json({ bot: 'Offline', redis: 'Disconnected', errors: errorLog.slice(-10) });
     }
 });
 
@@ -152,12 +149,11 @@ app.get('/callback', (req, res) => {
         })
         .catch(err => {
             errorLog.push(`OAuth error: ${err.message}`);
-            res.status(500).send('OAuth failed');
+            res.status(500).send('OAuth failed - check logs');
         });
     }
 });
 
-// --- DISCORD HANDLER ---
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
     try {
@@ -200,6 +196,15 @@ client.on('messageCreate', async (message) => {
         errorLog.push(`Message handler error: ${e.message}`);
     }
 });
+
+// Check for required env vars before starting
+if (!process.env.TOKEN) {
+    console.error('Error: TOKEN environment variable is not set. Bot cannot start.');
+    process.exit(1);
+}
+if (!process.env.REDIS_URL) {
+    console.error('Warning: REDIS_URL not set, using localhost (may fail in production).');
+}
 
 client.login(process.env.TOKEN);
 app.listen(process.env.PORT || 80);
