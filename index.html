@@ -13,7 +13,7 @@
         .sidebar.closed { margin-left: -260px; }
         .nav-item { padding: 15px 25px; cursor: pointer; color: #b9bbbe; border-left: 4px solid transparent; }
         .nav-item.active { background: #202429; color: #fff; border-left-color: var(--accent); }
-        .nav-item.owner-only { display: none; }  /* Hidden by default */
+        .nav-item.owner-only { display: none; }
 
         .main-content { flex: 1; display: flex; flex-direction: column; width: 100%; }
         .top-bar { height: 60px; background: #0b0e11; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; }
@@ -36,6 +36,7 @@
         .console { background: #000; color: #0f0; padding: 10px; border: 1px solid #333; height: 150px; overflow-y: auto; display: none; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); }
+        @media (max-width: 768px) { .sidebar { margin-left: -260px; } .sidebar:not(.closed) { margin-left: 0; } #menu-trigger { display: block !important; } }
     </style>
 </head>
 <body>
@@ -121,4 +122,190 @@
                 <div class="card">
                     <h2>Bot Status (Owner Only)</h2>
                     <table>
-                        <tr><th>Component</th><th>Status</
+                        <tr><th>Component</th><th>Status</th></tr>
+                        <tr><td>Bot Online</td><td id="bot-status">Checking...</td></tr>
+                        <tr><td>Redis Connected</td><td id="redis-status">Checking...</td></tr>
+                        <tr><td>Recent Errors</td><td id="error-list">None</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <div id="v-terms" class="view">
+                <div class="card">
+                    <h2>Terms of Service</h2>
+                    <p>By using S.S. Syntax, you agree to use the bot responsibly. No malicious code, spamming, or violation of Discord's TOS. We are not liable for any issues.</p>
+                </div>
+            </div>
+
+            <div id="v-privacy" class="view">
+                <div class="card">
+                    <h2>Privacy Policy</h2>
+                    <p>We store command data in Redis for functionality. OAuth tokens are temporary and not stored long-term. Your data is not shared.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('token');
+        let currentGuild = null;
+        let editor = null;
+
+        function init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('token')) {
+                token = urlParams.get('token');
+                localStorage.setItem('token', token);
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+            if (token) {
+                fetchUser();
+            } else {
+                showAuth();
+            }
+        }
+
+        function fetchUser() {
+            fetch('https://official-sssyntax-website-production.up.railway.app/api/user-me', { headers: { Authorization: `Bearer ${token}` } })
+                .then(r => r.json())
+                .then(u => {
+                    document.getElementById('user-name').textContent = u.username;
+                    document.getElementById('user-pfp').src = `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png`;
+                    document.getElementById('auth-section').style.display = 'none';
+                    document.getElementById('user-section').style.display = 'flex';
+                    if (u.id === '1218997569359970454') {
+                        document.querySelectorAll('.owner-only').forEach(e => e.style.display = 'block');
+                    }
+                    fetchServers();
+                })
+                .catch(() => {
+                    alert('Login failed. Please try again.');
+                    logout();
+                });
+        }
+
+        function fetchServers() {
+            fetch('https://official-sssyntax-website-production.up.railway.app/api/mutual-servers', { headers: { Authorization: `Bearer ${token}` } })
+                .then(r => r.json())
+                .then(s => {
+                    const sel = document.getElementById('guild-select');
+                    sel.innerHTML = '<option value="">Choose a Server</option>';
+                    s.forEach(g => {
+                        const opt = document.createElement('option');
+                        opt.value = g.id;
+                        opt.textContent = g.name;
+                        sel.appendChild(opt);
+                    });
+                    document.getElementById('guild-select').style.display = 'block';
+                    document.querySelectorAll('.s-only').forEach(e => e.style.display = 'block');
+                });
+        }
+
+        function loadServer() {
+            currentGuild = document.getElementById('guild-select').value;
+            if (currentGuild) {
+                refreshCommands();
+                loadSettings();
+                loadStatus();
+            }
+        }
+
+        function refreshCommands() {
+            fetch(`https://official-sssyntax-website-production.up.railway.app/api/commands/${currentGuild}`)
+                .then(r => r.json())
+                .then(c => {
+                    document.getElementById('cmd-count').textContent = c.length;
+                    const list = document.getElementById('cmd-list');
+                    list.innerHTML = '';
+                    c.forEach(cmd => {
+                        const div = document.createElement('div');
+                        div.className = 'card';
+                        div.innerHTML = `<strong>${cmd.trigger}</strong> (${cmd.lang}) <button class="btn-red" onclick="del('${cmd.id}')">Delete</button> <button class="btn-green" onclick="edit('${cmd.id}')">Edit</button>`;
+                        list.appendChild(div);
+                    });
+                });
+        }
+
+        function openEditor(id = null) {
+            document.getElementById('list-view').style.display = 'none';
+            document.getElementById('edit-view').style.display = 'block';
+            document.getElementById('console-toggle').style.display = 'block';
+            if (!editor) {
+                editor = ace.edit('code-editor');
+                editor.setTheme('ace/theme/monokai');
+                editor.session.setMode('ace/mode/javascript');
+            }
+            if (id) {
+                fetch(`https://official-sssyntax-website-production.up.railway.app/api/commands/${currentGuild}`)
+                    .then(r => r.json())
+                    .then(c => {
+                        const cmd = c.find(x => x.id === id);
+                        if (cmd) {
+                            document.getElementById('c-lang').value = cmd.lang;
+                            document.getElementById('c-type').value = cmd.type;
+                            document.getElementById('c-trig').value = cmd.trigger;
+                            editor.setValue(cmd.code);
+                            loadMeta(cmd.roles || [], cmd.channels || []);
+                            document.getElementById('save-btn').textContent = 'UPDATE COMMAND';
+                            document.getElementById('save-btn').onclick = () => save(true, id);
+                        }
+                    });
+            } else {
+                document.getElementById('c-lang').value = 'JavaScript';
+                document.getElementById('c-type').value = 'Command (prefix)';
+                document.getElementById('c-trig').value = '';
+                editor.setValue('');
+                loadMeta([], []);
+                document.getElementById('save-btn').textContent = 'CONFIRM COMMAND';
+                document.getElementById('save-btn').onclick = () => save();
+            }
+        }
+
+        function closeEditor() {
+            document.getElementById('edit-view').style.display = 'none';
+            document.getElementById('list-view').style.display = 'block';
+            document.getElementById('console-toggle').style.display = 'none';
+        }
+
+        function loadMeta(roles, channels) {
+            fetch(`https://official-sssyntax-website-production.up.railway.app/api/guild-meta/${currentGuild}`)
+                .then(r => r.json())
+                .then(m => {
+                    const rList = document.getElementById('r-list');
+                    rList.innerHTML = '';
+                    m.roles.forEach(r => {
+                        const chk = document.createElement('input');
+                        chk.type = 'checkbox';
+                        chk.value = r.id;
+                        chk.checked = roles.includes(r.id);
+                        rList.appendChild(chk);
+                        rList.appendChild(document.createTextNode(r.name + ' '));
+                    });
+                    const chList = document.getElementById('ch-list');
+                    chList.innerHTML = '';
+                    m.channels.forEach(c => {
+                        const chk = document.createElement('input');
+                        chk.type = 'checkbox';
+                        chk.value = c.id;
+                        chk.checked = channels.includes(c.id);
+                        chList.appendChild(chk);
+                        chList.appendChild(document.createTextNode(c.name + ' '));
+                    });
+                });
+        }
+
+        function save(isEdit = false, id = null) {
+            const cmd = {
+                id: id || Date.now().toString(),
+                lang: document.getElementById('c-lang').value,
+                type: document.getElementById('c-type').value,
+                trigger: document.getElementById('c-trig').value,
+                code: editor.getValue(),
+                roles: Array.from(document.querySelectorAll('#r-list input:checked')).map(c => c.value),
+                channels: Array.from(document.querySelectorAll('#ch-list input:checked')).map(c => c.value),
+                isEdit
+            };
+            fetch('https://official-sssyntax-website-production.up.railway.app/api/save-command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ guildId: currentGuild, command: cmd
