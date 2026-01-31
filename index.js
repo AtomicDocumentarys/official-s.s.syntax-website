@@ -87,7 +87,6 @@ app.get('/callback', async (req, res) => {
         );
         
         const { access_token } = tokenResponse.data;
-        // Redirect back to dashboard with token
         res.redirect(`/?token=${access_token}`);
     } catch (error) {
         console.error('OAuth error:', error.message);
@@ -452,14 +451,11 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// === DISCORD BOT EVENTS ===
+// === DISCORD BOT EVENTS - FIXED: Using clientReady instead of ready ===
+// Remove the old 'ready' event and only use 'clientReady' to fix the warning
 client.once('clientReady', () => {
     console.log(`✅ Bot logged in as ${client.user.tag}`);
     console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
-});
-
-client.once('ready', () => {
-    console.log(`✅ [Compatibility] Bot ready as ${client.user.tag}`);
 });
 
 // === START SERVER ===
@@ -484,6 +480,14 @@ async function startServer() {
                 process.exit(0);
             });
         });
+        
+        // Keep process alive
+        setInterval(() => {
+            if (redis.status !== 'ready') {
+                console.log('Reconnecting Redis...');
+                redis.connect().catch(() => {});
+            }
+        }, 60000); // Check every minute
         
     } catch (error) {
         console.error('❌ Failed to start:', error);
