@@ -562,7 +562,7 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// Command Testing
+// Command Testing - FIXED SECTION
 app.post('/api/test-command', authenticateUser, [
     body('code').isString().trim().isLength({ max: 5000 }),
     body('lang').isIn(['JavaScript', 'Python', 'Go']),
@@ -585,7 +585,7 @@ app.post('/api/test-command', authenticateUser, [
                         log: (msg) => { output += msg + '\n'; } 
                     },
                     message: { 
-                        reply: (text) => { output += `Reply: ${text}\n`; }
+                        reply: (text) => { output += 'Reply: ' + text + '\n'; }
                     }
                 },
                 require: { 
@@ -598,7 +598,7 @@ app.post('/api/test-command', authenticateUser, [
                 vm.run(code);
                 res.json({ output: output || 'No output' });
             } catch (e) {
-                res.json({ output: `JavaScript Error: ${e.message}` });
+                res.json({ output: 'JavaScript Error: ' + e.message });
             }
         } else if (lang === 'Python') {
-            const tempFile = path.join(__dirname, `temp_${cry
+            const randomId = crypto.rand
