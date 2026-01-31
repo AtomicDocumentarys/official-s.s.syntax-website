@@ -3,65 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S.S. Syntax | Management</title>
+    <title>S.S. Syntax | Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
     <style>
         :root { --bg: #1e2124; --side: #2e3136; --main: #36393e; --blurple: #5865f2; --success: #3ba55c; --danger: #ed4245; }
-        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; }
-        .sidebar { width: 260px; background: var(--side); height: 100vh; position: fixed; padding: 20px; box-sizing: border-box; }
-        .content { margin-left: 260px; padding: 40px; }
-        
-        .card { background: var(--main); border-radius: 5px; padding: 20px; margin-bottom: 20px; border-left: 5px solid var(--blurple); }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; display: flex; }
+        .sidebar { width: 260px; background: var(--side); height: 100vh; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .content { flex-grow: 1; padding: 40px; box-sizing: border-box; }
+        .card { background: var(--main); border-radius: 8px; padding: 20px; margin-bottom: 20px; border-left: 5px solid var(--blurple); }
         .cmd-item { display: flex; justify-content: space-between; align-items: center; background: #2f3136; padding: 15px; margin-bottom: 10px; border-radius: 4px; }
-        
-        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-primary { background: var(--blurple); color: white; }
         .btn-danger { background: var(--danger); color: white; }
         .btn-edit { background: var(--success); color: white; margin-right: 10px; }
-
-        #error-box { background: rgba(237, 66, 69, 0.1); border: 1px solid var(--danger); color: var(--danger); padding: 10px; margin-bottom: 15px; border-radius: 4px; display: none; }
-        textarea { width: 100%; height: 150px; background: #000; color: #0f0; font-family: monospace; border: none; padding: 10px; margin: 10px 0; }
+        #code-editor { height: 350px; width: 100%; border-radius: 4px; margin: 15px 0; border: 1px solid #444; }
+        #error-box { background: rgba(237, 66, 69, 0.15); border: 1px solid var(--danger); color: #ff8e8e; padding: 15px; margin-bottom: 15px; display: none; border-radius: 4px; }
+        .server-btn { width: 100%; text-align: left; background: transparent; color: #b9bbbe; border: none; padding: 10px; cursor: pointer; border-radius: 4px; }
+        .server-btn:hover { background: #393c43; color: white; }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>S.S. Syntax</h2>
-        <hr style="border-color: #444">
+        <h2 style="color: var(--blurple);">S.S. Syntax</h2>
         <div id="server-list"></div>
+        <button class="btn btn-primary" style="width: 100%; margin-top: 20px;" onclick="login()">Login / Refresh</button>
     </div>
 
     <div class="content">
         <div id="view-home">
-            <h1>Select a server to manage commands</h1>
+            <h1>Welcome to S.S. Syntax</h1>
+            <p>Select a server from the sidebar to manage its custom commands.</p>
         </div>
 
         <div id="view-manage" style="display: none;">
             <h1 id="server-name">Server Name</h1>
             
             <div id="bot-warning" class="card" style="border-color: var(--danger); display: none;">
-                <h3>⚠️ Bot is not in this server!</h3>
-                <p>Invite the bot to this server to start creating commands.</p>
-                <button class="btn btn-primary" onclick="window.open('https://discord.com/api/oauth2/authorize?client_id=1466792124686008341&permissions=8&scope=bot')">Invite Bot</button>
+                <h3>⚠️ Bot is missing!</h3>
+                <p>The bot must be in the server to create commands.</p>
+                <button class="btn btn-primary" onclick="inviteBot()">Invite Bot</button>
             </div>
 
             <div id="manage-controls">
-                <button class="btn btn-primary" onclick="showEditor()">+ Create New Custom Command</button>
-                <h3 style="margin-top: 30px;">Custom Commands</h3>
+                <button class="btn btn-primary" onclick="showEditor()">+ Create New Command</button>
+                <h3 style="margin-top: 30px;">Active Commands</h3>
                 <div id="command-list"></div>
             </div>
         </div>
 
         <div id="view-editor" style="display: none;">
             <button class="btn" onclick="showManager()">← Back</button>
-            <h2 id="editor-title">Create Command</h2>
+            <h2 id="editor-title">Command Editor</h2>
             <div class="card">
                 <div id="error-box"></div>
-                <label>Command Name</label>
-                <input type="text" id="edit-name" style="width:100%; padding:8px; margin-bottom:15px;">
+                <label>Command Name (e.g. 'hello')</label><br>
+                <input type="text" id="edit-name" style="width:100%; padding:10px; background:#202225; color:white; border:1px solid #444; margin: 10px 0;">
                 
-                <label>Script (JS/Python/Go)</label>
-                <select id="edit-lang"><option value="js">JS</option><option value="py">Python</option><option value="go">Go</option></select>
-                <textarea id="edit-code"></textarea>
+                <label>Language</label>
+                <select id="edit-lang" onchange="updateEditorMode()" style="padding:5px; margin-left:10px;">
+                    <option value="js">JavaScript</option>
+                    <option value="py">Python</option>
+                    <option value="go">Go</option>
+                </select>
+
+                <div id="code-editor"></div>
                 
                 <button class="btn btn-primary" onclick="saveCommand()">Save & Deploy</button>
             </div>
@@ -71,6 +77,13 @@
     <script>
         let currentGuildId = null;
         let editingCmdId = null;
+        let editor = ace.edit("code-editor");
+        editor.setTheme("ace/theme/monokai");
+        editor.session.setMode("ace/mode/javascript");
+
+        function inviteBot() {
+            window.open(`https://discord.com/api/oauth2/authorize?client_id=1466792124686008341&permissions=8&scope=bot`);
+        }
 
         async function selectServer(id, name) {
             currentGuildId = id;
@@ -79,9 +92,8 @@
             document.getElementById('view-editor').style.display = 'none';
             document.getElementById('server-name').innerText = name;
 
-            // Check if bot is in server
             const res = await fetch(`/api/check-bot/${id}`);
-            if (res.status === 404) {
+            if (!res.ok) {
                 document.getElementById('bot-warning').style.display = 'block';
                 document.getElementById('manage-controls').style.display = 'none';
             } else {
@@ -95,11 +107,11 @@
             const res = await fetch(`/api/commands/${currentGuildId}`);
             const cmds = await res.json();
             const list = document.getElementById('command-list');
-            list.innerHTML = cmds.length ? '' : '<p>No custom commands yet.</p>';
+            list.innerHTML = cmds.length ? '' : '<p>No commands yet.</p>';
             cmds.forEach(c => {
                 list.innerHTML += `
                     <div class="cmd-item">
-                        <span><strong>!${c.name}</strong> (${c.language})</span>
+                        <span><strong>!${c.name}</strong></span>
                         <div>
                             <button class="btn btn-edit" onclick='editCommand(${JSON.stringify(c)})'>Edit</button>
                             <button class="btn btn-danger" onclick="deleteCommand('${c.id}')">Delete</button>
@@ -108,46 +120,74 @@
             });
         }
 
+        function showEditor() {
+            editingCmdId = null;
+            document.getElementById('edit-name').value = '';
+            editor.setValue('return "Hello World!";');
+            document.getElementById('view-manage').style.display = 'none';
+            document.getElementById('view-editor').style.display = 'block';
+        }
+
+        function editCommand(cmd) {
+            editingCmdId = cmd.id;
+            document.getElementById('edit-name').value = cmd.name;
+            document.getElementById('edit-lang').value = cmd.language;
+            editor.setValue(cmd.code);
+            updateEditorMode();
+            document.getElementById('view-manage').style.display = 'none';
+            document.getElementById('view-editor').style.display = 'block';
+        }
+
         async function saveCommand() {
-            const code = document.getElementById('edit-code').value;
+            const code = editor.getValue();
             const lang = document.getElementById('edit-lang').value;
             const name = document.getElementById('edit-name').value;
 
-            // Diagnostic Check
-            const testRes = await fetch('/api/test-code', {
+            const test = await fetch('/api/test-code', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ language: lang, code: code })
+                body: JSON.stringify({ language: lang, code })
             });
-            const testResult = await testRes.json();
+            const result = await test.json();
 
-            if (!testResult.success) {
-                const errBox = document.getElementById('error-box');
-                errBox.innerText = "❌ Diagnostic Error: " + testResult.error;
-                errBox.style.display = 'block';
+            if (!result.success) {
+                document.getElementById('error-box').innerText = "❌ Code Error: " + result.error;
+                document.getElementById('error-box').style.display = 'block';
                 return;
             }
-
-            const command = {
-                id: editingCmdId || 'cmd_' + Date.now(),
-                name: name,
-                language: lang,
-                code: code,
-                trigger: '!'
-            };
 
             await fetch('/api/save-command', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ guildId: currentGuildId, command })
+                body: JSON.stringify({ guildId: currentGuildId, command: { id: editingCmdId || Date.now(), name, language: lang, code }})
             });
 
-            alert("Success! Command is live.");
-            showManager();
-            loadCommands();
+            alert("Command Saved!");
+            selectServer(currentGuildId, document.getElementById('server-name').innerText);
         }
 
-        // ... Add loadServers() logic from previous version to fill the sidebar ...
+        function updateEditorMode() {
+            const lang = document.getElementById('edit-lang').value;
+            const modes = { 'js': 'ace/mode/javascript', 'py': 'ace/mode/python', 'go': 'ace/mode/golang' };
+            editor.session.setMode(modes[lang]);
+        }
+
+        function login() { window.location.href = `https://discord.com/api/oauth2/authorize?client_id=1466792124686008341&redirect_uri=${encodeURIComponent(window.location.origin + '/callback.html')}&response_type=code&scope=identify+guilds`; }
+
+        async function checkAuth() {
+            const token = localStorage.getItem('discord_token');
+            if (!token) return;
+            const res = await fetch('https://discord.com/api/users/@me/guilds', { headers: { Authorization: `Bearer ${token}` } });
+            const guilds = await res.json();
+            const list = document.getElementById('server-list');
+            guilds.forEach(g => {
+                if ((BigInt(g.permissions) & 0x8n) === 0x8n) {
+                    list.innerHTML += `<button class="server-btn" onclick="selectServer('${g.id}', '${g.name}')"># ${g.name}</button>`;
+                }
+            });
+        }
+        window.onload = checkAuth;
     </script>
 </body>
-</html>
+    </html>
+    
