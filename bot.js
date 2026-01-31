@@ -6,7 +6,7 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const Redis = require('ioredis');
 const axios = require('axios');
-const cors = require('cors');  // Added for potential CORS if needed
+const cors = require('cors');
 
 const client = new Client({
     intents: [
@@ -20,22 +20,26 @@ const client = new Client({
 const app = express();
 const redis = new Redis(process.env.REDIS_URL);
 app.use(bodyParser.json());
-app.use(cors());  // Enable CORS for frontend requests
+app.use(cors());
 app.use(express.static('.'));
+
+// Simple error log (in-memory; use Redis for persistence in production)
+let errorLog = [];
 
 // --- API ROUTES ---
 
-// Fetch User Profile
 app.get('/api/user-me', async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me', {
             headers: { Authorization: req.headers.authorization }
         });
         res.json(response.data);
-    } catch (e) { res.status(401).send("Unauthorized"); }
+    } catch (e) { 
+        errorLog.push(`User fetch error: ${e.message}`);
+        res.status(401).send("Unauthorized"); 
+    }
 });
 
-// Fetch Mutual Servers
 app.get('/api/mutual-servers', async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me/guilds', {
@@ -43,10 +47,12 @@ app.get('/api/mutual-servers', async (req, res) => {
         });
         const mutual = response.data.filter(g => (BigInt(g.permissions) & 0x20n) && client.guilds.cache.has(g.id));
         res.json(mutual);
-    } catch (e) { res.status(500).json([]); }
+    } catch (e) { 
+        errorLog.push(`Mutual servers error: ${e.message}`);
+        res.status(500).json([]); 
+    }
 });
 
-// Fetch Guild Meta (Roles/Channels)
 app.get('/api/guild-meta/:guildId', async (req, res) => {
     const guild = client.guilds.cache.get(req.params.guildId);
     if (!guild) return res.status(404).json({ roles: [], channels: [] });
@@ -56,14 +62,12 @@ app.get('/api/guild-meta/:guildId', async (req, res) => {
     });
 });
 
-// Fetch Commands for Guild
 app.get('/api/commands/:guildId', async (req, res) => {
     const commands = await redis.hgetall(`commands:${req.params.guildId}`);
     const cmdList = Object.values(commands).map(c => JSON.parse(c));
     res.json(cmdList);
 });
 
-// Save Command
 app.post('/api/save-command', async (req, res) => {
     const { guildId, command } = req.body;
     const count = await redis.hlen(`commands:${guildId}`);
@@ -72,13 +76,11 @@ app.post('/api/save-command', async (req, res) => {
     res.sendStatus(200);
 });
 
-// Delete Command
 app.delete('/api/command/:guildId/:cmdId', async (req, res) => {
     await redis.hdel(`commands:${req.params.guildId}`, req.params.cmdId);
     res.sendStatus(200);
 });
 
-// Settings (Prefix)
 app.post('/api/settings/:guildId', async (req, res) => {
     await redis.set(`prefix:${req.params.guildId}`, req.body.prefix);
     res.sendStatus(200);
@@ -89,15 +91,25 @@ app.get('/api/settings/:guildId', async (req, res) => {
     res.json({ prefix: p });
 });
 
-// OAuth Callback (Secure server-side handling)
+// New: Status endpoint for owner
+app.get('/api/status', async (req, res) => {
+    try {
+        const botStatus = client.readyAt ? 'Online' : 'Not there';
+        const redisStatus = await redis.ping() === 'PONG' ? 'Connected' : 'Not there';
+        const errors = errorLog.slice(-10);  // Last 10 errors
+        res.json({ bot: botStatus, redis: redisStatus, errors });
+    } catch (e) {
+        errorLog.push(`Status check error: ${e.message}`);
+        res.status(500).json({ bot: 'Not there', redis: 'Not there', errors: errorLog.slice(-10) });
+    }
+});
+
 app.get('/callback', (req, res) => {
     const code = req.query.code;
     if (!code) {
-        // Redirect to Discord OAuth
         const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${process.env.CLIENT_ID}&redirect_uri=${encodeURIComponent(process.env.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
         res.redirect(oauthUrl);
     } else {
-        // Exchange code for token
         axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
             client_id: process.env.CLIENT_ID,
             client_secret: process.env.CLIENT_SECRET,
@@ -107,10 +119,12 @@ app.get('/callback', (req, res) => {
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
         .then(response => {
             const token = response.data.access_token;
-            // Redirect back to frontend with token (replace with your GitHub Pages URL)
-            res.redirect(`https://yourusername.github.io/sssyntax-dashboard/?token=${token}`);
+            res.redirect(`https://atomicdocumentarys.github.io/official-s.s.syntax-website/?token=${token}`);
         })
-        .catch(err => res.status(500).send('OAuth failed'));
+        .catch(err => {
+            errorLog.push(`OAuth error: ${err.message}`);
+            res.status(500).send('OAuth failed');
+        });
     }
 });
 
@@ -146,7 +160,10 @@ client.on('messageCreate', async (message) => {
                     });
                 }
                 console.log(`Command executed: ${cmd.trigger}, Output: ${output}`);
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                errorLog.push(`Command execution error: ${e.message}`);
+                console.error(e); 
+            }
         }
     }
 });
