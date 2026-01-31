@@ -1,168 +1,115 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S.S. Syntax | Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
-    <style>
-        :root { --bg: #000000; --side: #111111; --accent: #3ba55c; --err: #ff4747; --text: #ffffff; }
-        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; display: flex; height: 100vh; }
-
-        /* SIDEBAR & TOP BAR */
-        .sidebar { width: 260px; background: var(--side); border-right: 1px solid #222; transition: 0.3s; margin-left: -260px; position: fixed; height: 100%; z-index: 1000; }
-        .sidebar.open { margin-left: 0; position: relative; }
-        .nav-item { padding: 15px 25px; cursor: pointer; border-bottom: 1px solid #1a1a1a; font-size: 14px; }
-        .nav-item:hover { background: #1a1a1a; }
-
-        .top-bar { height: 60px; background: #080808; width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid #222; position: fixed; top: 0; z-index: 999; }
-        
-        main { flex: 1; padding: 80px 20px 20px; overflow-y: auto; }
-        .view { display: none; max-width: 1000px; margin: 0 auto; }
-        .view.active { display: block; }
-
-        /* FORM ELEMENTS */
-        .card { background: #0d0d0d; border: 1px solid #222; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-        .input-black { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 5px; margin-bottom: 15px; }
-        .btn-confirm { background: var(--accent); color: white; border: none; padding: 15px; border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold; }
-        
-        #code-editor { height: 300px; border: 1px solid #222; margin-bottom: 10px; }
-        .error-log { color: var(--err); background: #1a0a0a; padding: 10px; border-radius: 5px; font-family: monospace; display: none; margin-bottom: 15px; }
-
-        /* SEARCHABLE MULTI-SELECT */
-        .multi-select { height: 100px; overflow-y: auto; background: #000; border: 1px solid #333; padding: 5px; border-radius: 5px; }
-        .multi-item { display: flex; align-items: center; gap: 8px; padding: 5px; font-size: 13px; }
-    </style>
-</head>
+<!doctype html>
+<html>
 <body>
+<script>
+<div id="view-commands" class="view">
+    <div class="card">
+        <label>Programming Language</label>
+        <select id="cmd-lang" class="input-black" onchange="updateEditorMode()">
+            <option value="javascript">JavaScript</option>
+            <option value="python">Python</option>
+            <option value="golang">Golang</option>
+        </select>
 
-    <div class="sidebar" id="sidebar">
-        <div style="padding: 20px; font-weight: bold; color: var(--accent);">S.S. SYNTAX</div>
-        <div class="nav-item" onclick="showView('home')">Home</div>
-        <div class="nav-item server-tab" style="display:none" onclick="showView('commands')">Custom Commands</div>
-        <div class="nav-item server-tab" style="display:none" onclick="showView('database')">Database Management</div>
-        <div class="nav-item" onclick="showView('terms')">Terms of Service</div>
-        <div class="nav-item" onclick="showView('privacy')">Privacy Policy</div>
-    </div>
+        <label>Trigger Type</label>
+        <select id="cmd-type" class="input-black" onchange="togglePrefix()">
+            <option>Command (prefix)</option>
+            <option>Starts with</option>
+            <option>Contains</option>
+            <option>Exact Match</option>
+            <option>Regex</option>
+        </select>
 
-    <div style="flex: 1; display: flex; flex-direction: column;">
-        <div class="top-bar">
-            <button onclick="toggleSidebar()" style="background:none; border:none; color:white; font-size:24px; cursor:pointer;">☰</button>
-            <select id="guild-select" class="input-black" style="width: 250px; margin: 0;" onchange="loadServerData()">
-                <option value="">Choose a server...</option>
-            </select>
+        <div id="prefix-container">
+            <label>Command Prefix</label>
+            <input type="text" id="cmd-prefix" class="input-black" value="!">
         </div>
 
-        <main>
-            <div id="view-home" class="view active">
-                <div class="card">
-                    <h1>System Landing</h1>
-                    <p>Welcome to S.S. Syntax. Please select a server from the top bar to begin automation.</p>
-                </div>
-            </div>
+        <label>Trigger Name</label>
+        <input type="text" id="cmd-trigger" class="input-black" placeholder="e.g. math">
 
-            <div id="view-commands" class="view">
-                <div class="card">
-                    <label>Language</label>
-                    <select id="cmd-lang" class="input-black">
-                        <option>JavaScript</option>
-                        <option>Python</option>
-                        <option>Golang</option>
-                    </select>
+        <label>Code Editor</label>
+        <div id="code-editor"></div>
+        <div id="error-box" class="error-log"></div>
 
-                    <label>Trigger Type</label>
-                    <select id="cmd-type" class="input-black" onchange="togglePrefix()">
-                        <option>Command (prefix)</option>
-                        <option>Starts with</option>
-                        <option>Contains</option>
-                        <option>Exact Match</option>
-                    </select>
+        <label>Role Requirements</label>
+        <input type="text" id="role-search" class="input-black" placeholder="Search roles..." onkeyup="filterList('role-list', this.value)">
+        <div id="role-list" class="multi-select"></div>
 
-                    <div id="prefix-container">
-                        <label>Command Prefix</label>
-                        <input type="text" id="cmd-prefix" class="input-black" value="!">
-                    </div>
+        <label style="margin-top: 15px; display: block;">Channel Restrictions</label>
+        <input type="text" id="channel-search" class="input-black" placeholder="Search channels..." onkeyup="filterList('channel-list', this.value)">
+        <div id="channel-list" class="multi-select"></div>
 
-                    <label>Trigger</label>
-                    <input type="text" id="cmd-trigger" class="input-black" placeholder="e.g. start">
-
-                    <label>Code Editor</label>
-                    <div id="code-editor"></div>
-                    <div id="error-box" class="error-log"></div>
-
-                    <label>Allowed Roles</label>
-                    <div id="role-list" class="multi-select"></div>
-
-                    <label style="margin-top: 15px; display: block;">Allowed Channels</label>
-                    <div id="channel-list" class="multi-select"></div>
-
-                    <button class="btn-confirm" onclick="validateAndConfirm()">CONFIRM COMMAND</button>
-                </div>
-            </div>
-
-            <div id="view-terms" class="view"><iframe src="terms.html" style="width:100%; height:70vh; border:none;"></iframe></div>
-            <div id="view-privacy" class="view"><iframe src="privacy.html" style="width:100%; height:70vh; border:none;"></iframe></div>
-        </main>
+        <button class="btn-confirm" style="margin-top: 20px;" onclick="validateAndConfirm()">CONFIRM COMMAND</button>
     </div>
+</div>
 
-    <script>
-        let editor = ace.edit("code-editor");
-        editor.setTheme("ace/theme/monokai");
-        editor.session.setMode("ace/mode/javascript");
+<script>
+    // Fix 1: Intelligent Editor Mode
+    function updateEditorMode() {
+        const lang = document.getElementById('cmd-lang').value;
+        const modeMap = {
+            'javascript': 'ace/mode/javascript',
+            'python': 'ace/mode/python',
+            'golang': 'ace/mode/golang'
+        };
+        editor.session.setMode(modeMap[lang]);
+        document.getElementById('error-box').style.display = 'none'; // Clear old errors
+    }
 
-        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-        function togglePrefix() {
-            const type = document.getElementById('cmd-type').value;
-            document.getElementById('prefix-container').style.display = (type === "Command (prefix)") ? "block" : "none";
+    // Fix 2: Search Function for Roles/Channels
+    function filterList(listId, query) {
+        const items = document.getElementById(listId).getElementsByClassName('multi-item');
+        const q = query.toLowerCase();
+        for (let item of items) {
+            const text = item.innerText.toLowerCase();
+            item.style.display = text.includes(q) ? 'flex' : 'none';
         }
+    }
 
-        function showView(id) {
-            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.getElementById('view-' + id).classList.add('active');
-            if (window.innerWidth < 800) toggleSidebar();
-        }
+    // Fix 3: Smarter Validation
+    function validateAndConfirm() {
+        const code = editor.getValue();
+        const lang = document.getElementById('cmd-lang').value;
+        const errorBox = document.getElementById('error-box');
+        errorBox.style.display = 'none';
 
-        async function loadServerData() {
-            const guildId = document.getElementById('guild-select').value;
-            if (!guildId) return;
-            document.querySelectorAll('.server-tab').forEach(t => t.style.display = 'block');
-            
-            const res = await fetch(`/api/guild-meta/${guildId}`);
-            const data = await res.json();
-            
-            document.getElementById('role-list').innerHTML = data.roles.map(r => `
-                <div class="multi-item"><input type="checkbox" value="${r.id}"> ${r.name}</div>
-            `).join('');
-            document.getElementById('channel-list').innerHTML = data.channels.map(c => `
-                <div class="multi-item"><input type="checkbox" value="${c.id}"> #${c.name}</div>
-            `).join('');
-        }
-
-        function validateAndConfirm() {
-            const code = editor.getValue();
-            const errorBox = document.getElementById('error-box');
-            errorBox.style.display = 'none';
-
-            if (document.getElementById('cmd-lang').value === "JavaScript") {
-                try {
-                    new Function(code);
-                } catch (e) {
-                    errorBox.innerText = `Syntax Error: ${e.message} (Check line logic)`;
-                    errorBox.style.display = 'block';
-                    return;
-                }
+        if (lang === "javascript") {
+            try {
+                new Function(code);
+            } catch (e) {
+                errorBox.innerHTML = `<b>JavaScript Error:</b> ${e.message}`;
+                errorBox.style.display = 'block';
+                return;
             }
-            alert("Command successfully confirmed and deployed!");
-        }
+        } 
+        // Python/Go validation is handled server-side during the test run
+        saveToServer();
+    }
 
-        async function init() {
-            const token = localStorage.getItem('discord_token');
-            const res = await fetch('/api/mutual-servers', { headers: { Authorization: `Bearer ${token}` } });
-            const guilds = await res.json();
-            const select = document.getElementById('guild-select');
-            guilds.forEach(g => { select.innerHTML += `<option value="${g.id}">${g.name}</option>`; });
-        }
-        window.onload = init;
-    </script>
+    async function saveToServer() {
+        const selectedRoles = Array.from(document.querySelectorAll('#role-list input:checked')).map(i => i.value);
+        const selectedChannels = Array.from(document.querySelectorAll('#channel-list input:checked')).map(i => i.value);
+        
+        const command = {
+            id: Date.now(),
+            lang: document.getElementById('cmd-lang').options[document.getElementById('cmd-lang').selectedIndex].text,
+            type: document.getElementById('cmd-type').value,
+            prefix: document.getElementById('cmd-prefix').value,
+            trigger: document.getElementById('cmd-trigger').value,
+            code: editor.getValue(),
+            roles: selectedRoles,
+            channels: selectedChannels
+        };
+
+        await fetch('/api/save-command', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ guildId: currentGuildId, command })
+        });
+        alert("Command Confirmed!");
+    }
+</script>
 </body>
 </html>
+    
