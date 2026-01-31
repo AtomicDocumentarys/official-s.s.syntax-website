@@ -17,9 +17,6 @@
     "ioredis": "^5.3.2",
     "vm2": "^3.9.19"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
-  },
   "engines": {
     "node": ">=18.0.0"
   }
