@@ -11,14 +11,27 @@ const crypto = require('crypto');
 const path = require('path');
 const { body, validationResult } = require('express-validator');
 
-// Configuration
-const requiredEnvVars = ['TOKEN', 'CLIENT_ID', 'CLIENT_SECRET', 'REDIRECT_URI', 'REDIS_URL'];
-requiredEnvVars.forEach(key => {
-    if (!process.env[key]) {
-        console.error('❌ Missing required environment variable: ' + key);
-        process.exit(1);
-    }
-});
+// Configuration - Hardcoded values
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = 'https://official-sssyntax-website-production.up.railway.app/callback';
+const REDIS_URL = process.env.REDIS_URL;
+
+// Check required environment variables
+if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
+    console.error('❌ Missing required environment variables');
+    console.error('Required: TOKEN, CLIENT_ID, CLIENT_SECRET, REDIS_URL');
+    console.error('Found:');
+    console.error('TOKEN:', TOKEN ? '✓' : '✗');
+    console.error('CLIENT_ID:', CLIENT_ID ? '✓' : '✗');
+    console.error('CLIENT_SECRET:', CLIENT_SECRET ? '✓' : '✗');
+    console.error('REDIS_URL:', REDIS_URL ? '✓' : '✗');
+    process.exit(1);
+}
+
+console.log('✅ Environment variables validated');
+console.log('📝 Using Redirect URI:', REDIRECT_URI);
 
 const client = new Client({
     intents: [
@@ -30,7 +43,7 @@ const client = new Client({
 });
 
 const app = express();
-const redis = new Redis(process.env.REDIS_URL);
+const redis = new Redis(REDIS_URL);
 
 // Global state
 const rateLimit = new Map();
@@ -38,8 +51,52 @@ const errorLog = [];
 
 // Middleware
 app.use(bodyParser.json({ limit: '10mb' }));
-app.use(cors({ origin: '*', credentials: true }));
+app.use(cors({
+    origin: '*',
+    credentials: true
+}));
 app.use(express.static('.'));
+
+// Request logging
+app.use((req, res, next) => {
+    console.log(req.method + ' ' + req.path);
+    next();
+});
+
+// OAuth Callback Route
+app.get('/callback', async (req, res) => {
+    try {
+        const { code } = req.query;
+        
+        if (!code) {
+            return res.redirect('/?error=no_code');
+        }
+        
+        // Exchange code for token
+        const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', 
+            new URLSearchParams({
+                client_id: CLIENT_ID,
+                client_secret: CLIENT_SECRET,
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: REDIRECT_URI
+            }), {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            }
+        );
+        
+        const { access_token } = tokenResponse.data;
+        
+        // Redirect with token in URL (for frontend to pick up)
+        res.redirect('/?token=' + access_token);
+        
+    } catch (error) {
+        console.error('OAuth callback error:', error.message);
+        res.redirect('/?error=auth_failed');
+    }
+});
 
 // Authentication middleware
 async function authenticateUser(req, res, next) {
@@ -58,6 +115,7 @@ async function authenticateUser(req, res, next) {
         req.token = token;
         next();
     } catch (e) {
+        console.error('Authentication error:', e.message);
         res.status(401).json({ error: 'Invalid token' });
     }
 }
@@ -84,6 +142,7 @@ async function verifyGuildAccess(req, res, next) {
         req.guild = guild;
         next();
     } catch (e) {
+        console.error('Guild access verification error:', e.message);
         res.status(403).json({ error: 'Access verification failed' });
     }
 }
@@ -141,7 +200,34 @@ app.get('/api/mutual-servers', authenticateUser, async (req, res) => {
         
         res.json(mutual);
     } catch (e) {
+        console.error('Mutual servers error:', e.message);
         res.status(500).json([]);
+    }
+});
+
+// Guild Meta Data
+app.get('/api/guild-meta/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
+    try {
+        const guild = req.guild;
+        res.json({
+            roles: guild.roles.cache
+                .filter(r => !r.managed && r.id !== guild.id)
+                .map(r => ({ 
+                    id: r.id, 
+                    name: r.name, 
+                    color: r.hexColor 
+                })),
+            channels: guild.channels.cache
+                .filter(c => c.type === 0)
+                .map(c => ({ 
+                    id: c.id, 
+                    name: c.name, 
+                    type: c.type 
+                }))
+        });
+    } catch (e) {
+        console.error('Guild meta error:', e.message);
+        res.status(500).json({ roles: [], channels: [] });
     }
 });
 
@@ -159,6 +245,7 @@ app.get('/api/commands/:guildId', authenticateUser, verifyGuildAccess, async (re
         
         res.json(cmdList);
     } catch (e) {
+        console.error('Commands fetch error:', e.message);
         res.status(500).json([]);
     }
 });
@@ -203,6 +290,7 @@ app.delete('/api/command/:guildId/:cmdId', authenticateUser, verifyGuildAccess, 
         await redis.hdel('commands:' + req.params.guildId, req.params.cmdId);
         res.json({ success: true, message: 'Command deleted' });
     } catch (e) {
+        console.error('Delete command error:', e.message);
         res.status(500).json({ error: 'Failed to delete command' });
     }
 });
@@ -213,6 +301,7 @@ app.get('/api/settings/:guildId', authenticateUser, verifyGuildAccess, async (re
         const prefix = await redis.get('prefix:' + req.params.guildId) || '!';
         res.json({ prefix });
     } catch (e) {
+        console.error('Settings fetch error:', e.message);
         res.json({ prefix: '!' });
     }
 });
@@ -229,6 +318,7 @@ app.post('/api/settings/:guildId', authenticateUser, verifyGuildAccess, [
         await redis.set('prefix:' + req.params.guildId, req.body.prefix);
         res.json({ success: true, message: 'Settings saved' });
     } catch (e) {
+        console.error('Settings save error:', e.message);
         res.status(500).json({ error: 'Failed to save settings' });
     }
 });
@@ -249,6 +339,7 @@ app.get('/api/db/:guildId', authenticateUser, verifyGuildAccess, async (req, res
         
         res.json(parsedEntries);
     } catch (e) {
+        console.error('DB fetch error:', e.message);
         res.status(500).json({});
     }
 });
@@ -266,6 +357,7 @@ app.post('/api/db/:guildId', authenticateUser, verifyGuildAccess, [
         await redis.hset('db:' + req.params.guildId, req.body.key, JSON.stringify(req.body.value));
         res.json({ success: true, message: 'Entry saved' });
     } catch (e) {
+        console.error('DB save error:', e.message);
         res.status(500).json({ error: 'Failed to save entry' });
     }
 });
@@ -275,6 +367,7 @@ app.delete('/api/db/:guildId/:key', authenticateUser, verifyGuildAccess, async (
         await redis.hdel('db:' + req.params.guildId, req.params.key);
         res.json({ success: true, message: 'Entry deleted' });
     } catch (e) {
+        console.error('DB delete error:', e.message);
         res.status(500).json({ error: 'Failed to delete entry' });
     }
 });
@@ -295,6 +388,7 @@ app.get('/api/status', async (req, res) => {
             memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + ' MB'
         });
     } catch (e) {
+        console.error('Status check error:', e.message);
         res.json({
             bot: '🔴 Offline',
             redis: '🔴 Disconnected',
@@ -306,7 +400,7 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// Command Testing - SIMPLIFIED
+// Command Testing
 app.post('/api/test-command', authenticateUser, [
     body('code').isString().trim().isLength({ max: 5000 }),
     body('lang').isIn(['JavaScript', 'Python', 'Go'])
@@ -379,7 +473,7 @@ app.post('/api/test-command', authenticateUser, [
     }
 });
 
-// Discord Message Handler - SIMPLIFIED
+// Discord Message Handler
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     
@@ -456,7 +550,7 @@ app.listen(PORT, () => {
 });
 
 // Login bot
-client.login(process.env.TOKEN).catch(error => {
+client.login(TOKEN).catch(error => {
     console.error('❌ Bot login failed:', error);
     process.exit(1);
 });
