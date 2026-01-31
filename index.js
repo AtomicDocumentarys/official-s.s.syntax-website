@@ -15,8 +15,12 @@ const { body, validationResult } = require('express-validator');
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const REDIRECT_URI = process.env.REDIRECT_URI || 'https://official-sssyntax-website-production.up.railway.app/callback';
+const REDIRECT_URI = process.env.REDIRECT_URI || (process.env.RAILWAY_STATIC_URL ? `${process.env.RAILWAY_STATIC_URL}/callback` : 'https://official-sssyntax-website-production.up.railway.app/callback');
 const REDIS_URL = process.env.REDIS_URL;
+
+// Railway specific configuration
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.RAILWAY_STATIC_URL ? '0.0.0.0' : 'localhost';
 
 // Check environment variables
 if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
@@ -27,6 +31,9 @@ if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !REDIS_URL) {
     console.error('REDIS_URL:', REDIS_URL ? 'OK' : 'MISSING');
     process.exit(1);
 }
+
+console.log('🚀 Server starting on Railway...');
+console.log(`📊 PORT: ${PORT}, HOST: ${HOST}`);
 
 const client = new Client({
     intents: [
@@ -51,17 +58,31 @@ app.use(express.static('public'));
 
 // Request logging
 app.use((req, res, next) => {
-    console.log(req.method + ' ' + req.path);
+    console.log(`${req.method} ${req.path} - ${req.ip}`);
     next();
 });
 
-// Health check
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+// Root route - IMPORTANT for Railway health checks
+app.get('/', (req, res) => {
+    res.json({
+        status: 'online',
+        service: 'Discord Bot Dashboard',
         time: new Date().toISOString(),
-        bot: client.isReady() ? 'ready' : 'not ready'
+        bot: client.isReady() ? 'ready' : 'starting'
     });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    const status = {
+        status: 'healthy',
+        time: new Date().toISOString(),
+        uptime: process.uptime(),
+        bot: client.isReady() ? 'ready' : 'starting',
+        redis: redis.status === 'ready' ? 'connected' : 'disconnected',
+        guilds: client.guilds?.cache?.size || 0
+    };
+    res.json(status);
 });
 
 // OAuth Callback
@@ -156,13 +177,10 @@ async function cleanupTempFile(filepath) {
 }
 
 // API Routes
-
-// User Info
 app.get('/api/user-me', authenticateUser, async (req, res) => {
     res.json(req.user);
 });
 
-// Mutual Servers
 app.get('/api/mutual-servers', authenticateUser, async (req, res) => {
     try {
         const response = await axios.get('https://discord.com/api/users/@me/guilds', {
@@ -184,7 +202,6 @@ app.get('/api/mutual-servers', authenticateUser, async (req, res) => {
     }
 });
 
-// Commands Management
 app.get('/api/commands/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
         const commands = await redis.hgetall('commands:' + req.params.guildId);
@@ -244,7 +261,6 @@ app.delete('/api/command/:guildId/:cmdId', authenticateUser, verifyGuildAccess, 
     }
 });
 
-// Settings Management
 app.get('/api/settings/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
         const prefix = await redis.get('prefix:' + req.params.guildId) || '!';
@@ -270,7 +286,6 @@ app.post('/api/settings/:guildId', authenticateUser, verifyGuildAccess, [
     }
 });
 
-// Database Management
 app.get('/api/db/:guildId', authenticateUser, verifyGuildAccess, async (req, res) => {
     try {
         const entries = await redis.hgetall('db:' + req.params.guildId);
@@ -317,7 +332,6 @@ app.delete('/api/db/:guildId/:key', authenticateUser, verifyGuildAccess, async (
     }
 });
 
-// System Status
 app.get('/api/status', async (req, res) => {
     try {
         const botStatus = client.readyAt ? '🟢 Online' : '🔴 Offline';
@@ -345,7 +359,6 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
-// Command Testing
 app.post('/api/test-command', authenticateUser, [
     body('code').isString().trim().isLength({ max: 5000 }),
     body('lang').isIn(['JavaScript', 'Python', 'Go'])
@@ -477,57 +490,58 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// Discord Bot Events - FIXED: Using clientReady instead of ready
+// Discord Bot Events - Use clientReady for Discord.js v15
 client.once('clientReady', () => {
     console.log('✅ Bot logged in as ' + client.user.tag);
     console.log('📊 Serving ' + client.guilds.cache.size + ' guilds');
 });
 
-// Also handle the 'ready' event for backward compatibility
+// For backward compatibility with older Discord.js versions
 client.once('ready', () => {
-    console.log('✅ [Backward Compat] Bot logged in as ' + client.user.tag);
+    console.log('✅ [Compatibility] Bot logged in as ' + client.user.tag);
 });
 
-// Start both services
-async function startServices() {
+// Start everything
+async function startApp() {
     try {
-        // Start Express server
-        const PORT = process.env.PORT || 3000;
-        const server = app.listen(PORT, () => {
-            console.log('🌐 Dashboard running on port ' + PORT);
+        // Start Express server first
+        const server = app.listen(PORT, HOST, () => {
+            console.log(`🌐 Dashboard running on http://${HOST}:${PORT}`);
+            console.log('✅ Web server is ready');
         });
 
         // Start Discord bot
         console.log('🤖 Bot starting...');
         await client.login(TOKEN);
         
-        // Keep process alive
+        console.log('✅ All services started successfully');
+        
+        // Handle graceful shutdown
         process.on('SIGTERM', () => {
             console.log('SIGTERM received, shutting down gracefully...');
-            client.destroy();
             server.close(() => {
-                console.log('Server closed');
+                console.log('HTTP server closed');
+                client.destroy();
+                console.log('Discord bot disconnected');
                 process.exit(0);
             });
         });
         
         process.on('SIGINT', () => {
             console.log('SIGINT received, shutting down...');
-            client.destroy();
             server.close(() => {
+                client.destroy();
                 process.exit(0);
             });
         });
         
-        console.log('✅ All services started successfully');
-        
     } catch (error) {
-        console.error('❌ Failed to start services:', error);
+        console.error('❌ Failed to start application:', error);
         process.exit(1);
     }
 }
 
-// Error handling
+// Error handling middleware
 app.use((err, req, res, next) => {
     console.error('❌ Server error:', err);
     errorLog.push('Server error: ' + err.message);
@@ -539,6 +553,5 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
-// Start everything
-console.log('🚀 Server starting...');
-startServices();
+// Start the application
+startApp();
