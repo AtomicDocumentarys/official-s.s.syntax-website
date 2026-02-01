@@ -1,4 +1,3 @@
-const { Client, GatewayIntentBits, PermissionsBitField, Collection } = require('discord.js');
 const express = require('express');
 const bodyParser = require('body-parser');
 const Redis = require('ioredis');
@@ -6,25 +5,19 @@ const axios = require('axios');
 const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
-const fs = require('fs').promises;
 const zlib = require('zlib');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const { NodeVM } = require('vm2');
 const helmet = require('helmet');
 const { v4: uuidv4 } = require('uuid');
 const util = require('util');
 
-// Promisify zlib functions
-const gzip = util.promisify(zlib.gzip);
-const gunzip = util.promisify(zlib.gunzip);
-
 // --- CONFIGURATION ---
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const TOKEN = process.env.TOKEN || '';
+const CLIENT_ID = process.env.CLIENT_ID || '';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || '';
 const REDIRECT_URI = process.env.REDIRECT_URI || (process.env.RAILWAY_STATIC_URL ? `${process.env.RAILWAY_STATIC_URL}/callback` : 'http://localhost:3000/callback');
-const REDIS_URL = process.env.REDIS_URL;
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -36,67 +29,18 @@ if (ALLOWED_ORIGINS.length === 0 && NODE_ENV === 'development') {
   ALLOWED_ORIGINS.push('http://localhost:3000');
 }
 
-// Bot configuration (optional - won't break if not provided)
-const BOT_CONFIG = {
-  token: TOKEN,
-  clientId: CLIENT_ID,
-  clientSecret: CLIENT_SECRET,
-  name: 'S.S. Syntax',
-  enabled: !!TOKEN, // Only enable bot if token is provided
-  status: {
-    ready: false,
-    enabled: !!TOKEN,
-    error: TOKEN ? null : 'No bot token provided'
-  }
-};
-
-// --- DATA STRUCTURES ---
-const commandCache = new Map();
-const sessionCache = new Map();
-const cooldowns = new Map();
-const executionLogs = new Map();
-const guildCache = new Map();
-
-let botClient = null;
-
-// Cleanup intervals
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, expires] of cooldowns.entries()) {
-    if (expires < now) cooldowns.delete(key);
-  }
-  for (const [sessionId, session] of sessionCache.entries()) {
-    if (session.expiresAt <= now) sessionCache.delete(sessionId);
-  }
-  for (const [cacheKey, logs] of executionLogs.entries()) {
-    if (logs.length > 1000) executionLogs.set(cacheKey, logs.slice(0, 1000));
-  }
-  for (const [guildKey, { timestamp }] of guildCache.entries()) {
-    if (now - timestamp > 5 * 60 * 1000) guildCache.delete(guildKey);
-  }
-}, 60000);
-
-// --- ENVIRONMENT VALIDATION ---
-console.log('🔍 Environment check:');
-console.log(`   NODE_ENV: ${NODE_ENV}`);
-console.log(`   PORT: ${PORT}`);
-console.log(`   CLIENT_ID: ${CLIENT_ID ? '✅ Set' : '❌ Missing'}`);
-console.log(`   TOKEN: ${TOKEN ? '✅ Set (Bot enabled)' : '⚠️ Missing (Bot disabled)'}`);
-console.log(`   REDIS_URL: ${REDIS_URL ? '✅ Set' : '❌ Missing'}`);
-
 // --- EXPRESS APP ---
 const app = express();
 
 // === HEALTH CHECK FIRST ===
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  return res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'discord-bot-dashboard',
     environment: NODE_ENV,
     version: '2.0.0',
-    bot_enabled: BOT_CONFIG.enabled,
-    bot_ready: botClient?.status?.ready || false
+    bot_enabled: !!TOKEN
   });
 });
 
@@ -117,12 +61,16 @@ app.use(helmet({
 // CORS with origin validation
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin && NODE_ENV === 'development') return callback(null, true);
-    if (ALLOWED_ORIGINS.length === 0) return callback(null, true);
+    if (!origin && NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    if (ALLOWED_ORIGINS.length === 0) {
+      return callback(null, true);
+    }
     if (ALLOWED_ORIGINS.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`🚫 Blocked CORS request from origin: ${origin}`);
+      console.warn(`Blocked CORS request from origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -131,7 +79,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
 
-// === Redis TLS ===
+// === Redis Connection ===
 let redis;
 try {
   redis = new Redis(REDIS_URL, {
@@ -143,11 +91,12 @@ try {
     reconnectOnError: (err) => err.message.includes('READONLY')
   });
 
-  redis.on('connect', () => console.log('✅ Redis connected'));
-  redis.on('error', (err) => console.error('❌ Redis error:', err.message));
-  redis.on('close', () => console.warn('⚠️ Redis connection closed'));
+  redis.on('connect', () => console.log('Redis connected'));
+  redis.on('error', (err) => console.error('Redis error:', err.message));
+  redis.on('close', () => console.warn('Redis connection closed'));
 } catch (error) {
-  console.error('❌ Failed to create Redis client:', error.message);
+  console.error('Failed to create Redis client:', error.message);
+  // Create a mock redis client that doesn't throw errors
   redis = {
     get: async () => null,
     set: async () => 'OK',
@@ -158,6 +107,7 @@ try {
     lpush: async () => 0,
     lrange: async () => [],
     ltrim: async () => 'OK',
+    hdel: async () => 0,
     on: () => {}
   };
 }
@@ -173,9 +123,13 @@ app.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
     const logMessage = `${requestId} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`;
-    if (res.statusCode >= 500) console.error(`❌ ${logMessage}`);
-    else if (res.statusCode >= 400) console.warn(`⚠️ ${logMessage}`);
-    else console.log(`✅ ${logMessage}`);
+    if (res.statusCode >= 500) {
+      console.error(`Error: ${logMessage}`);
+    } else if (res.statusCode >= 400) {
+      console.warn(`Warning: ${logMessage}`);
+    } else {
+      console.log(`Success: ${logMessage}`);
+    }
   });
   req.requestId = requestId;
   next();
@@ -224,28 +178,11 @@ async function createSession(discordToken, userData, ipAddress) {
     lastActivity: Date.now()
   };
   await redis.setex(`session:${sessionId}`, 24 * 60 * 60, JSON.stringify(sessionData));
-  sessionCache.set(sessionId, sessionData);
   return sessionId;
 }
 
 async function validateSession(sessionId, ipAddress) {
   if (!verifySessionId(sessionId)) return null;
-  
-  // Check memory cache
-  if (sessionCache.has(sessionId)) {
-    const session = sessionCache.get(sessionId);
-    if (session.expiresAt <= Date.now()) {
-      sessionCache.delete(sessionId);
-      await redis.del(`session:${sessionId}`);
-      return null;
-    }
-    if (NODE_ENV === 'production' && ipAddress && session.ipAddress !== ipAddress) {
-      console.warn(`🚨 Session IP mismatch`);
-      return null;
-    }
-    session.lastActivity = Date.now();
-    return session;
-  }
   
   // Check Redis
   const sessionData = await redis.get(`session:${sessionId}`);
@@ -257,181 +194,14 @@ async function validateSession(sessionId, ipAddress) {
     return null;
   }
   
+  if (NODE_ENV === 'production' && ipAddress && session.ipAddress !== ipAddress) {
+    console.warn('Session IP mismatch');
+    return null;
+  }
+  
   session.lastActivity = Date.now();
-  sessionCache.set(sessionId, session);
   await redis.setex(`session:${sessionId}`, 24 * 60 * 60, JSON.stringify(session));
   return session;
-}
-
-// --- DISCORD BOT INITIALIZATION (OPTIONAL) ---
-async function initializeBot() {
-  if (!BOT_CONFIG.enabled) {
-    console.log('⚠️ Bot token not provided - bot functionality disabled');
-    console.log('✅ Web dashboard will run independently');
-    return;
-  }
-  
-  try {
-    const client = new Client({
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-      ],
-      partials: ['MESSAGE', 'CHANNEL']
-    });
-
-    botClient = {
-      client,
-      config: BOT_CONFIG,
-      status: { ready: false, enabled: true, error: null, startedAt: Date.now() }
-    };
-
-    // Setup bot events
-    client.once('ready', () => {
-      console.log(`🤖 ${BOT_CONFIG.name} logged in as ${client.user.tag}`);
-      botClient.status.ready = true;
-      botClient.status.guilds = client.guilds.cache.size;
-      botClient.status.startedAt = Date.now();
-      botClient.status.ping = client.ws.ping;
-    });
-
-    client.on('messageCreate', async (message) => {
-      if (message.author.bot || !message.guild) return;
-      
-      // Command handling logic here
-      const prefix = '!';
-      if (!message.content.startsWith(prefix)) return;
-      
-      const args = message.content.slice(prefix.length).trim().split(/ +/);
-      const commandName = args.shift().toLowerCase();
-      
-      // Load and execute custom commands from Redis
-      const commands = await loadGuildCommands(message.guild.id);
-      const command = commands.find(cmd => cmd.name === commandName);
-      
-      if (command) {
-        try {
-          const sandbox = createSandbox(message);
-          const startTime = Date.now();
-          await sandbox.run(command.code);
-          const executionTime = Date.now() - startTime;
-          
-          await logCommandExecution(
-            message.guild.id,
-            message.author.id,
-            command.id,
-            true,
-            null,
-            executionTime
-          );
-        } catch (error) {
-          console.error(`Command execution error: ${error.message}`);
-          await logCommandExecution(
-            message.guild.id,
-            message.author.id,
-            command.id,
-            false,
-            error,
-            null
-          );
-        }
-      }
-    });
-
-    await client.login(BOT_CONFIG.token);
-    console.log(`✅ ${BOT_CONFIG.name} login initiated`);
-  } catch (error) {
-    console.error(`❌ Failed to login ${BOT_CONFIG.name}:`, error.message);
-    BOT_CONFIG.status.error = error.message;
-  }
-}
-
-// --- SANDBOX (Only used if bot is enabled) ---
-function createSandbox(message) {
-  return new NodeVM({
-    timeout: 2000,
-    sandbox: {
-      message: {
-        author: {
-          id: message.author.id,
-          username: message.author.username,
-          bot: message.author.bot
-        },
-        channel: {
-          id: message.channel.id,
-          name: message.channel.name,
-          send: async (content) => {
-            if (typeof content !== 'string') content = String(content);
-            if (content.length > 2000) content = content.substring(0, 1997) + '...';
-            return message.channel.send(content).catch(console.error);
-          }
-        },
-        guild: message.guild,
-        content: message.content,
-        reply: (content) => message.reply(content).catch(console.error)
-      },
-      console: {
-        log: (...args) => {
-          const logMsg = args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-          ).join(' ');
-          console.log(`[Command ${message.guild?.id}]`, logMsg);
-        }
-      }
-    },
-    require: false,
-    eval: false,
-    wasm: false,
-    wrapper: 'none'
-  });
-}
-
-// --- COMMAND MANAGEMENT ---
-async function loadGuildCommands(guildId) {
-  try {
-    const cacheKey = `commands:${guildId}`;
-    if (guildCache.has(cacheKey)) {
-      const cached = guildCache.get(cacheKey);
-      if (Date.now() - cached.timestamp < 5 * 60 * 1000) {
-        return cached.data;
-      }
-    }
-    
-    const commands = await redis.hgetall(`commands:${guildId}`);
-    const parsedCommands = Object.values(commands)
-      .map(c => {
-        try { return JSON.parse(c); } catch { return null; }
-      })
-      .filter(c => c !== null);
-    
-    guildCache.set(cacheKey, {
-      timestamp: Date.now(),
-      data: parsedCommands
-    });
-    
-    return parsedCommands;
-  } catch (error) {
-    console.error('Failed to load commands:', error.message);
-    return [];
-  }
-}
-
-async function logCommandExecution(guildId, userId, commandId, success, error = null, executionTime = null) {
-  const logEntry = {
-    id: uuidv4(),
-    timestamp: new Date().toISOString(),
-    guildId,
-    userId,
-    commandId,
-    success,
-    error: error ? error.message : null,
-    executionTime
-  };
-  
-  await redis.lpush(`logs:${guildId}`, JSON.stringify(logEntry));
-  await redis.ltrim(`logs:${guildId}`, 0, 9999);
 }
 
 // --- AUTHENTICATION MIDDLEWARE ---
@@ -458,74 +228,68 @@ async function authenticateUser(req, res, next) {
   }
 }
 
+// --- COMMAND MANAGEMENT ---
+async function loadGuildCommands(guildId) {
+  try {
+    const commands = await redis.hgetall(`commands:${guildId}`);
+    if (!commands) return [];
+    
+    const parsedCommands = Object.values(commands)
+      .map(c => {
+        try { 
+          return JSON.parse(c); 
+        } catch (e) { 
+          console.error('Failed to parse command:', e);
+          return null; 
+        }
+      })
+      .filter(c => c !== null);
+    
+    return parsedCommands;
+  } catch (error) {
+    console.error('Failed to load commands:', error.message);
+    return [];
+  }
+}
+
+async function saveGuildCommand(guildId, commandId, commandData) {
+  try {
+    await redis.hset(`commands:${guildId}`, commandId, JSON.stringify(commandData));
+    return true;
+  } catch (error) {
+    console.error('Failed to save command:', error.message);
+    return false;
+  }
+}
+
+async function deleteGuildCommand(guildId, commandId) {
+  try {
+    await redis.hdel(`commands:${guildId}`, commandId);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete command:', error.message);
+    return false;
+  }
+}
+
 // --- ROUTES ---
 
 // Dashboard route
-app.get('/dashboard', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+app.get('/', (req, res) => {
+  return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// API routes (protected with authentication)
-app.get('/api/guilds', authenticateUser, apiLimiter, async (req, res) => {
-  try {
-    if (!BOT_CONFIG.enabled || !botClient || !botClient.status.ready) {
-      return res.json({ 
-        guilds: [],
-        bot_available: false,
-        message: BOT_CONFIG.enabled ? 'Bot is not ready yet' : 'Bot functionality is disabled'
-      });
-    }
-    
-    const guilds = await botClient.client.guilds.fetch();
-    const guildData = await Promise.all(
-      guilds.map(async (guild) => {
-        const fullGuild = await guild.fetch();
-        return {
-          id: fullGuild.id,
-          name: fullGuild.name,
-          icon: fullGuild.iconURL(),
-          memberCount: fullGuild.memberCount,
-          owner: fullGuild.ownerId === botClient.client.user.id
-        };
-      })
-    );
-    
-    res.json({ guilds: guildData, bot_available: true });
-  } catch (error) {
-    console.error('Failed to fetch guilds:', error);
-    res.status(500).json({ error: 'Failed to fetch guilds' });
-  }
+app.get('/dashboard', (req, res) => {
+  return res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
 // Get bot status
-app.get('/api/status', authenticateUser, apiLimiter, (req, res) => {
-  if (!BOT_CONFIG.enabled) {
-    return res.json({
-      enabled: false,
-      ready: false,
-      name: BOT_CONFIG.name,
-      message: 'Bot functionality is disabled (no token provided)'
-    });
-  }
-  
-  if (!botClient) {
-    return res.json({
-      enabled: true,
-      ready: false,
-      name: BOT_CONFIG.name,
-      message: 'Bot is initializing...',
-      error: BOT_CONFIG.status.error
-    });
-  }
-  
-  res.json({
-    enabled: true,
-    ready: botClient.status.ready,
-    name: BOT_CONFIG.name,
-    uptime: botClient.status.ready ? Date.now() - botClient.status.startedAt : 0,
-    guilds: botClient.status.guilds || 0,
-    ping: botClient.status.ping || 0,
-    message: botClient.status.ready ? 'Bot is online' : 'Bot is connecting...'
+app.get('/api/status', (req, res) => {
+  return res.json({
+    enabled: !!TOKEN,
+    ready: false,
+    name: 'S.S. Syntax',
+    message: TOKEN ? 'Bot token provided but not initialized' : 'Bot functionality is disabled (no token provided)'
   });
 });
 
@@ -534,13 +298,14 @@ app.get('/api/commands/:guildId', authenticateUser, apiLimiter, async (req, res)
   try {
     const { guildId } = req.params;
     const commands = await loadGuildCommands(guildId);
-    res.json({ 
+    return res.json({ 
+      success: true,
       commands,
-      bot_available: BOT_CONFIG.enabled && botClient?.status?.ready
+      bot_available: !!TOKEN
     });
   } catch (error) {
     console.error('Failed to fetch commands:', error);
-    res.status(500).json({ error: 'Failed to fetch commands' });
+    return res.status(500).json({ error: 'Failed to fetch commands' });
   }
 });
 
@@ -569,19 +334,20 @@ app.post('/api/commands/:guildId', authenticateUser, apiLimiter, [
       updatedAt: new Date().toISOString()
     };
     
-    await redis.hset(`commands:${guildId}`, commandId, JSON.stringify(commandData));
+    const success = await saveGuildCommand(guildId, commandId, commandData);
     
-    // Clear cache
-    guildCache.delete(`commands:${guildId}`);
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to save command' });
+    }
     
-    res.json({ 
+    return res.json({ 
       success: true, 
       command: commandData,
-      bot_available: BOT_CONFIG.enabled && botClient?.status?.ready
+      bot_available: !!TOKEN
     });
   } catch (error) {
     console.error('Failed to save command:', error);
-    res.status(500).json({ error: 'Failed to save command' });
+    return res.status(500).json({ error: 'Failed to save command' });
   }
 });
 
@@ -589,18 +355,19 @@ app.post('/api/commands/:guildId', authenticateUser, apiLimiter, [
 app.delete('/api/commands/:guildId/:commandId', authenticateUser, apiLimiter, async (req, res) => {
   try {
     const { guildId, commandId } = req.params;
-    await redis.hdel(`commands:${guildId}`, commandId);
+    const success = await deleteGuildCommand(guildId, commandId);
     
-    // Clear cache
-    guildCache.delete(`commands:${guildId}`);
+    if (!success) {
+      return res.status(500).json({ error: 'Failed to delete command' });
+    }
     
-    res.json({ 
+    return res.json({ 
       success: true,
-      bot_available: BOT_CONFIG.enabled && botClient?.status?.ready
+      bot_available: !!TOKEN
     });
   } catch (error) {
     console.error('Failed to delete command:', error);
-    res.status(500).json({ error: 'Failed to delete command' });
+    return res.status(500).json({ error: 'Failed to delete command' });
   }
 });
 
@@ -619,7 +386,7 @@ app.get('/callback', authLimiter, async (req, res) => {
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
         grant_type: 'authorization_code',
-        code,
+        code: code,
         redirect_uri: REDIRECT_URI,
         scope: 'identify guilds'
       }),
@@ -630,7 +397,7 @@ app.get('/callback', authLimiter, async (req, res) => {
       }
     );
     
-    const { access_token, refresh_token } = tokenResponse.data;
+    const { access_token } = tokenResponse.data;
     
     // Get user info
     const userResponse = await axios.get('https://discord.com/api/users/@me', {
@@ -651,7 +418,146 @@ app.get('/callback', authLimiter, async (req, res) => {
     });
     
     // Redirect to dashboard
-    res.redirect('/dashboard');
+    return res.redirect('/dashboard');
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
-    res.status(500).send('A
+    return res.status(500).send('Authentication failed');
+  }
+});
+
+// Login endpoint (returns OAuth URL)
+app.get('/api/login', (req, res) => {
+  const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
+  return res.json({ url: discordAuthUrl });
+});
+
+// Logout endpoint
+app.post('/api/logout', authenticateUser, async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const sessionId = req.cookies?.sessionId || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null);
+    
+    if (sessionId) {
+      await redis.del(`session:${sessionId}`);
+    }
+    
+    res.clearCookie('sessionId');
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    return res.status(500).json({ error: 'Failed to logout' });
+  }
+});
+
+// User info endpoint
+app.get('/api/user', authenticateUser, async (req, res) => {
+  try {
+    const userResponse = await axios.get('https://discord.com/api/users/@me', {
+      headers: {
+        Authorization: `Bearer ${req.session.discordToken}`
+      }
+    });
+    
+    return res.json({ 
+      success: true,
+      user: userResponse.data,
+      bot_available: !!TOKEN
+    });
+  } catch (error) {
+    console.error('Failed to fetch user info:', error);
+    return res.status(500).json({ error: 'Failed to fetch user info' });
+  }
+});
+
+// Get user guilds
+app.get('/api/user/guilds', authenticateUser, apiLimiter, async (req, res) => {
+  try {
+    const guildsResponse = await axios.get('https://discord.com/api/users/@me/guilds', {
+      headers: {
+        Authorization: `Bearer ${req.session.discordToken}`
+      }
+    });
+    
+    // Filter to only guilds where user has admin permissions
+    const adminGuilds = guildsResponse.data.filter(guild => {
+      const permissions = BigInt(guild.permissions);
+      // ADMINISTRATOR permission or MANAGE_GUILD
+      return (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
+    });
+    
+    return res.json({ 
+      success: true,
+      guilds: adminGuilds,
+      bot_available: !!TOKEN
+    });
+  } catch (error) {
+    console.error('Failed to fetch user guilds:', error);
+    return res.status(500).json({ error: 'Failed to fetch user guilds' });
+  }
+});
+
+// Test endpoint to verify Redis connection
+app.get('/api/test/redis', async (req, res) => {
+  try {
+    const testKey = `test:${Date.now()}`;
+    await redis.set(testKey, 'test-value', 'EX', 10);
+    const value = await redis.get(testKey);
+    await redis.del(testKey);
+    
+    return res.json({ 
+      success: true, 
+      message: 'Redis connection working',
+      testValue: value
+    });
+  } catch (error) {
+    console.error('Redis test failed:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Redis connection failed',
+      message: error.message
+    });
+  }
+});
+
+// 404 handler
+app.use((req, res) => {
+  return res.status(404).json({ error: 'Not found' });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  return res.status(500).json({ error: 'Internal server error' });
+});
+
+// --- SERVER STARTUP ---
+async function startServer() {
+  try {
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${NODE_ENV}`);
+      console.log(`Allowed origins: ${ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS.join(', ') : 'All (development mode)'}`);
+      console.log(`Bot status: ${TOKEN ? 'Token provided' : 'Running in dashboard-only mode'}`);
+      console.log(`Dashboard available at: http://localhost:${PORT}/dashboard`);
+      console.log(`Health check: http://localhost:${PORT}/health`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down');
+  process.exit(0);
+});
+
+// Start the application
+startServer();
