@@ -2,391 +2,777 @@
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="client-id" content="<%= CLIENT_ID %>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Secure S.S. Syntax Bot Dashboard">
+    <meta name="description" content="S.S. Syntax - Advanced Discord Bot Dashboard">
     <title>S.S. Syntax Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Remove the inline style and link to external CSS for security -->
-    <link rel="stylesheet" href="/styles.css">
-</head>
-<body>
-    <!-- Security Notice Modal -->
-    <div id="securityModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><i class="fas fa-shield-alt"></i> Security Configuration Required</h2>
-                <span class="modal-close" onclick="closeSecurityModal()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div class="security-alert">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h3>Missing Security Configuration</h3>
-                    <p>Your dashboard is missing critical security settings. Please configure the following:</p>
-                    
-                    <div class="config-list">
-                        <div class="config-item">
-                            <h4><i class="fas fa-key"></i> ENCRYPTION_KEY</h4>
-                            <p>Generate with: <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code></p>
-                            <p>Set as environment variable in Railway/Railway/etc.</p>
-                        </div>
-                        
-                        <div class="config-item">
-                            <h4><i class="fas fa-globe"></i> ALLOWED_ORIGINS</h4>
-                            <p>Set to: <code>https://your-website-domain.com</code></p>
-                            <p>Add multiple domains separated by commas if needed</p>
-                        </div>
-                        
-                        <div class="config-item">
-                            <h4><i class="fas fa-database"></i> REDIS_PASSWORD</h4>
-                            <p>Set a strong password for Redis in your Railway dashboard</p>
-                        </div>
-                    </div>
-                    
-                    <div class="port-info">
-                        <h4><i class="fas fa-network-wired"></i> About Port 80</h4>
-                        <p>Railway automatically handles ports. Your site is accessible at the provided URL.</p>
-                        <p><strong>DON'T manually change the port to 80.</strong> Railway uses $PORT environment variable.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" onclick="closeSecurityModal()">I Understand</button>
-                <button class="btn btn-secondary" onclick="window.open('https://railway.app', '_blank')">Go to Railway Dashboard</button>
-            </div>
-        </div>
-    </div>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0e14;
+            --bg-secondary: #131820;
+            --bg-tertiary: #1a1f2e;
+            --accent-primary: #00d9ff;
+            --accent-secondary: #00ff88;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a8b8;
+            --text-tertiary: #6b7280;
+            --border: #1f2937;
+            --success: #00ff88;
+            --error: #ff4757;
+            --warning: #ffa502;
+            --shadow: rgba(0, 0, 0, 0.4);
+        }
 
-    <div class="app-container">
-        <!-- Sidebar -->
-        <div id="sidebar" class="sidebar">
-            <div class="sidebar-header">
-                <h2>
-                    <i class="fas fa-shield-alt"></i>
-                    <span>S.S. SYNTAX</span>
-                    <span class="security-badge" id="securityStatus">🔓</span>
-                </h2>
-                <p class="sidebar-subtitle">Secure Bot Dashboard</p>
-            </div>
-            
-            <div class="nav-section">
-                <div class="nav-item active" onclick="switchTab('home')">
-                    <i class="fas fa-home"></i>
-                    <span>Dashboard</span>
-                </div>
-                
-                <div class="nav-item s-only hidden" onclick="switchTab('commands')">
-                    <i class="fas fa-code"></i>
-                    <span>Commands</span>
-                </div>
-                
-                <div class="nav-item s-only hidden" onclick="switchTab('settings')">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
-                </div>
-                
-                <div class="nav-item s-only hidden" onclick="switchTab('security')">
-                    <i class="fas fa-shield-alt"></i>
-                    <span>Security</span>
-                </div>
-                
-                <div class="nav-item" onclick="switchTab('status')">
-                    <i class="fas fa-heartbeat"></i>
-                    <span>Status</span>
-                </div>
-                
-                <div class="nav-item" onclick="openDocumentation()">
-                    <i class="fas fa-book"></i>
-                    <span>Documentation</span>
-                </div>
-            </div>
-            
-            <div class="sidebar-footer">
-                <div class="security-notice">
-                    <i class="fas fa-lock"></i>
-                    <span>Secure Connection</span>
-                    <span id="connectionStatus" class="status-indicator"></span>
-                </div>
-            </div>
-        </div>
+        [data-theme="light"] {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #e9ecef;
+            --accent-primary: #0080ff;
+            --accent-secondary: #00b894;
+            --text-primary: #1a1a1a;
+            --text-secondary: #4a5568;
+            --text-tertiary: #718096;
+            --border: #e2e8f0;
+            --shadow: rgba(0, 0, 0, 0.1);
+        }
 
-        <!-- Main Content -->
-        <div id="main-content" class="main-content">
-            <!-- Top Bar -->
-            <div class="top-bar">
-                <div class="left-section">
-                    <button id="menu-trigger" class="btn btn-icon" onclick="toggleSidebar()">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    
-                    <div class="guild-selector">
-                        <select id="guildSelect" class="input-black s-only hidden" onchange="selectGuild()">
-                            <option value="">Select a server...</option>
-                        </select>
-                        <div id="guildInfo" class="guild-info hidden"></div>
-                    </div>
-                </div>
-                
-                <div class="right-section">
-                    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-                        <div class="toggle-handle"></div>
-                        <i class="fas fa-sun"></i>
-                        <i class="fas fa-moon"></i>
-                    </div>
-                    
-                    <div id="authSection" class="auth-section">
-                        <button class="btn btn-primary" onclick="login()" id="loginBtn">
-                            <i class="fab fa-discord"></i>
-                            <span>Secure Login</span>
-                        </button>
-                    </div>
-                    
-                    <div id="userSection" class="user-menu hidden" onclick="toggleDropdown(event)">
-                        <div class="user-info">
-                            <span id="userName" class="user-name">Loading...</span>
-                            <span id="userDiscriminator" class="user-discriminator"></span>
-                        </div>
-                        <img id="userPfp" class="user-pfp" src="https://cdn.discordapp.com/embed/avatars/0.png" alt="User Avatar">
-                        <div id="dropdown" class="dropdown-content">
-                            <div onclick="viewProfile()">
-                                <i class="fas fa-user"></i>
-                                <span>Profile</span>
-                            </div>
-                            <div onclick="openSecuritySettings()">
-                                <i class="fas fa-shield-alt"></i>
-                                <span>Security</span>
-                            </div>
-                            <div class="divider"></div>
-                            <div onclick="logout()" class="logout-btn">
-                                <i class="fas fa-sign-out-alt"></i>
-                                <span>Logout</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-            <!-- Views -->
-            <main>
-                <!-- Home/Dashboard View -->
-                <div id="v-home" class="view active">
-                    <div class="welcome-card card">
-                        <div class="welcome-header">
-                            <h1><i class="fas fa-rocket"></i> Welcome to S.S. Syntax</h1>
-                            <p class="subtitle">Advanced Discord bot with enterprise-grade security</p>
-                        </div>
-                        
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <i class="fas fa-shield-alt"></i>
-                                <div class="stat-content">
-                                    <h3>Security Level</h3>
-                                    <p class="stat-value" id="securityLevel">High</p>
-                                </div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <i class="fas fa-bolt"></i>
-                                <div class="stat-content">
-                                    <h3>Uptime</h3>
-                                    <p class="stat-value" id="uptimeStatus">Checking...</p>
-                                </div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <i class="fas fa-server"></i>
-                                <div class="stat-content">
-                                    <h3>Servers</h3>
-                                    <p class="stat-value" id="serverCount">Loading...</p>
-                                </div>
-                            </div>
-                            
-                            <div class="stat-card">
-                                <i class="fas fa-code"></i>
-                                <div class="stat-content">
-                                    <h3>Commands</h3>
-                                    <p class="stat-value" id="commandCount">0</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="quick-actions">
-                            <button class="btn btn-primary" onclick="login()" id="quickLoginBtn">
-                                <i class="fab fa-discord"></i>
-                                <span>Get Started</span>
-                            </button>
-                            
-                            <button class="btn btn-success" onclick="addToServer()">
-                                <i class="fas fa-plus"></i>
-                                <span>Add to Server</span>
-                            </button>
-                            
-                            <button class="btn btn-secondary" onclick="switchTab('security')">
-                                <i class="fas fa-shield-alt"></i>
-                                <span>Security Check</span>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="features-grid">
-                        <div class="feature-card">
-                            <i class="fas fa-code"></i>
-                            <h3>Multi-Language</h3>
-                            <p>JavaScript, Python, and Go support with secure execution</p>
-                        </div>
-                        
-                        <div class="feature-card">
-                            <i class="fas fa-shield-alt"></i>
-                            <h3>Enterprise Security</h3>
-                            <p>CSRF protection, rate limiting, encryption, and audit logging</p>
-                        </div>
-                        
-                        <div class="feature-card">
-                            <i class="fas fa-database"></i>
-                            <h3>Secure Database</h3>
-                            <p>Redis with encryption and access controls</p>
-                        </div>
-                        
-                        <div class="feature-card">
-                            <i class="fas fa-chart-line"></i>
-                            <h3>Real-time Monitoring</h3>
-                            <p>Live status and performance metrics</p>
-                        </div>
-                    </div>
-                </div>
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
 
-                <!-- Commands View -->
-                <div id="v-commands" class="view">
-                    <div class="card">
-                        <div class="view-header">
-                            <h2><i class="fas fa-code"></i> Command Management</h2>
-                            <button class="btn btn-primary" onclick="openNewCommandModal()">
-                                <i class="fas fa-plus"></i>
-                                <span>New Command</span>
-                            </button>
-                        </div>
-                        
-                        <div class="command-filters">
-                            <input type="text" id="commandSearch" class="input-black" placeholder="Search commands..." oninput="filterCommands()">
-                            <select id="commandFilter" class="input-black" onchange="filterCommands()">
-                                <option value="all">All Types</option>
-                                <option value="prefix">Prefix Commands</option>
-                                <option value="exact">Exact Match</option>
-                                <option value="starts">Starts With</option>
-                            </select>
-                        </div>
-                        
-                        <div class="command-list" id="commandList">
-                            <div class="empty-state">
-                                <i class="fas fa-code"></i>
-                                <h3>No Commands Found</h3>
-                                <p>Create your first command or select a server</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        code {
+            font-family: 'JetBrains Mono', monospace;
+        }
 
-                <!-- Settings View -->
-                <div id="v-settings" class="view">
-                    <div class="card">
-                        <h2><i class="fas fa-cog"></i> Server Settings</h2>
-                        <div class="settings-section">
-                            <h3><i class="fas fa-terminal"></i> Bot Prefix</h3>
-                            <div class="setting-row">
-                                <input type="text" id="prefixInput" class="input-black" maxlength="5" placeholder="!">
-                                <button class="btn btn-primary" onclick="updatePrefix()">Update Prefix</button>
-                            </div>
-                        </div>
-                        
-                        <div class="settings-section">
-                            <h3><i class="fas fa-user-shield"></i> Permissions</h3>
-                            <div class="permission-grid">
-                                <div class="permission-item">
-                                    <input type="checkbox" id="permManage" checked disabled>
-                                    <label for="permManage">Manage Server</label>
-                                </div>
-                                <div class="permission-item">
-                                    <input type="checkbox" id="permAdmin" disabled>
-                                    <label for="permAdmin">Administrator</label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        /* Layout */
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
 
-                <!-- Security View -->
-                <div id="v-security" class="view">
-                    <div class="card">
-                        <div class="security-header">
-                            <h2><i class="fas fa-shield-alt"></i> Security Dashboard</h2>
-                            <button class="btn btn-secondary" onclick="runSecurityScan()">
-                                <i class="fas fa-search"></i>
-                                <span>Run Security Scan</span>
-                            </button>
-                        </div>
-                        
-                        <div class="security-status">
-                            <div class="security-item" id="csrfStatus">
-                                <i class="fas fa-check-circle"></i>
-                                <span>CSRF Protection</span>
-                                <span class="status-badge status-good">Active</span>
-                            </div>
-                            
-                            <div class="security-item" id="rateLimitStatus">
-                                <i class="fas fa-check-circle"></i>
-                                <span>Rate Limiting</span>
-                                <span class="status-badge status-good">Active</span>
-                            </div>
-                            
-                            <div class="security-item" id="encryptionStatus">
-                                <i class="fas fa-exclamation-triangle"></i>
-                                <span>Encryption</span>
-                                <span class="status-badge status-warning">Check Config</span>
-                            </div>
-                            
-                            <div class="security-item" id="auditStatus">
-                                <i class="fas fa-check-circle"></i>
-                                <span>Audit Logging</span>
-                                <span class="status-badge status-good">Active</span>
-                            </div>
-                        </div>
-                        
-                        <div class="audit-log">
-                            <h3><i class="fas fa-clipboard-list"></i> Recent Audit Logs</h3>
-                            <div class="log-list" id="auditLogList">
-                                <div class="log-entry">
-                                    <span class="log-time">Loading...</span>
-                                    <span class="log-action">Fetching logs...</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        .sidebar {
+            width: 280px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
 
-                <!-- Status View -->
-                <div id="v-status" class="view">
-                    <div class="status-grid">
-                        <div class="status-card card">
-                            <h3><i class="fas fa-robot"></i> Bot Status</h3>
-                            <div class="status-content">
-                                <div class="status-item">
-                                    <span>Status:</span>
-                                    <span id="botStatus" class="status-indicator">Checking...</span>
-                                </div>
-                                <div class="status-item">
-                                    <span>Uptime:</span>
-                                    <span id="botUptime">--</span>
-                                </div>
-                                <div class="status-item">
-                                    <span>Ping:</span>
-                                    <span id="botPing">-- ms</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="status-card card">
-                            <h3><i class="fas fa-database"></i> Redis Status</h3>
-                            <div class="status-content">
-                                <div class="status-item">
-                                    <span>Connection:</span>
-                                    <span id="redisStatus" class="status-indicator">
+        .sidebar.closed {
+            transform: translateX(-280px);
+        }
+
+        .sidebar-header {
+            padding: 32px 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-header h2 {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-subtitle {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .nav-section {
+            padding: 16px 0;
+        }
+
+        .nav-item {
+            padding: 14px 24px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-left-color: var(--accent-primary);
+        }
+
+        .nav-item.active {
+            background: var(--bg-tertiary);
+            color: var(--accent-primary);
+            border-left-color: var(--accent-primary);
+        }
+
+        .nav-item i {
+            width: 20px;
+            text-align: center;
+        }
+
+        .main-content {
+            flex: 1;
+            margin-left: 280px;
+            transition: margin-left 0.3s ease;
+        }
+
+        .main-content.full {
+            margin-left: 0;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            height: 80px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            backdrop-filter: blur(10px);
+        }
+
+        .left-section, .right-section {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        #menu-trigger {
+            display: none;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 24px 0;
+            box-shadow: 0 4px 24px var(--shadow);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px var(--shadow);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 217, 255, 0.3);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #000;
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-icon {
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        /* Inputs */
+        .input-black {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-family: inherit;
+            width: 100%;
+            transition: all 0.2s ease;
+        }
+
+        .input-black:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.1);
+        }
+
+        select.input-black {
+            cursor: pointer;
+        }
+
+        /* Theme Toggle */
+        .theme-toggle {
+            width: 64px;
+            height: 32px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 8px;
+        }
+
+        .theme-toggle i {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            transition: color 0.3s ease;
+        }
+
+        .toggle-handle {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            left: 4px;
+        }
+
+        [data-theme="light"] .toggle-handle {
+            transform: translateX(32px);
+        }
+
+        /* User Menu */
+        .user-menu {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            padding: 8px 16px;
+            border-radius: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            transition: all 0.2s ease;
+        }
+
+        .user-menu:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .user-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .user-pfp {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid var(--accent-primary);
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px var(--shadow);
+            min-width: 200px;
+            overflow: hidden;
+        }
+
+        .dropdown-content.show {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .dropdown-content div {
+            padding: 14px 18px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .dropdown-content div:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 8px 0;
+            padding: 0 !important;
+        }
+
+        /* Views */
+        .view {
+            display: none;
+            padding: 32px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .view.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        /* Welcome Card */
+        .welcome-card {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            border: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .welcome-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(0, 217, 255, 0.1) 0%, transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+
+        .welcome-header {
+            position: relative;
+            z-index: 1;
+        }
+
+        .welcome-header h1 {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 18px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 32px 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        .stat-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--accent-primary);
+            transform: translateY(-2px);
+        }
+
+        .stat-card i {
+            font-size: 32px;
+            color: var(--accent-primary);
+        }
+
+        .stat-content h3 {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-top: 32px;
+        }
+
+        .feature-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-primary);
+        }
+
+        .feature-card i {
+            font-size: 48px;
+            color: var(--accent-primary);
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Quick Actions */
+        .quick-actions {
+            display: flex;
+            gap: 16px;
+            margin-top: 32px;
+            flex-wrap: wrap;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Command List */
+        .command-list {
+            display: grid;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .command-item {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .command-item:hover {
+            border-color: var(--accent-primary);
+            transform: translateX(4px);
+        }
+
+        .command-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .command-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .command-lang {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-tertiary);
+        }
+
+        .command-lang span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .command-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state i {
+            font-size: 64px;
+            color: var(--text-tertiary);
+            margin-bottom: 24px;
+            display: block;
+        }
+
+        .empty-state h3 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        /* Status Cards */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .status-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+        }
+
+        .status-card h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-indicator {
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .status-online {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--success);
+        }
+
+        .status-offline {
+            background: rgba(255, 71, 87, 0.2);
+            color: var(--error);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .modal-header h2 {
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .modal-close {
+            cursor: pointer;
+            font-size: 28px;
+            color: var(--text-tertiary);
+            transition: color 0.2s ease;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--accent-primary);
+            border-radius: 12px;
+            padding: 20px 24px;
+            box-shadow: 0 8px 32px var(--shadow);
+            transform: translateX(400px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10000;
+            max-width: 400px;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+
+        .notification.success {
+            border-left-color: var(--success);
+        }
+
+        .notification.error {
+            border-left-color: var(--error);
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .view-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .view-header h2 {
+            font-size: 32px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Hidden */
+        .hidden {
+            display: none !important;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from {
+          
