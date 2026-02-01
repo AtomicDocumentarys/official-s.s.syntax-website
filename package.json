@@ -1,17 +1,11 @@
 {
-  "name": "ss-syntax-bot-dashboard",
+  "name": "ss-syntax-dashboard",
   "version": "1.0.0",
-  "description": "Simple Discord Bot Dashboard",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "express": "^4.18.2"
   }
 }
