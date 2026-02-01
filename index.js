@@ -28,16 +28,50 @@ if (ALLOWED_ORIGINS.length === 0 && NODE_ENV === 'development') {
 // --- EXPRESS APP ---
 const app = express();
 
-// === HEALTH CHECK FIRST ===
+// Railway-specific middleware - ADDED FOR OPTION 1
+app.use((req, res, next) => {
+  // Add Railway headers for health checks
+  if (req.path === '/health' || req.path === '/health/') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+  
+  // Log Railway-specific info
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    req.railway = {
+      environment: process.env.RAILWAY_ENVIRONMENT,
+      serviceId: process.env.RAILWAY_SERVICE_ID,
+      serviceName: process.env.RAILWAY_SERVICE_NAME
+    };
+  }
+  
+  next();
+});
+
+// === HEALTH CHECK FIRST === - UPDATED FOR OPTION 1
 app.get('/health', (req, res) => {
-  return res.status(200).json({
+  const healthData = {
     status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'discord-bot-dashboard',
+    version: '2.0.1',
     environment: NODE_ENV,
-    version: '2.0.0',
-    bot_enabled: !!TOKEN
-  });
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    bot_enabled: !!TOKEN,
+    redis_connected: redis.status === 'ready',
+    platform: process.env.RAILWAY_ENVIRONMENT ? 'railway' : 'local'
+  };
+  
+  // Return 503 if critical services are down
+  if (redis.status !== 'ready') {
+    healthData.status = 'degraded';
+    healthData.redis_connected = false;
+    return res.status(503).json(healthData);
+  }
+  
+  return res.status(200).json(healthData);
 });
 
 // Security middleware
@@ -92,7 +126,8 @@ try {
     lrange: async () => [],
     ltrim: async () => 'OK',
     hdel: async () => 0,
-    on: () => {}
+    on: () => {},
+    status: 'ready'
   };
 }
 
@@ -357,7 +392,7 @@ app.delete('/api/commands/:guildId/:commandId', authenticateUser, apiLimiter, as
   }
 });
 
-// Discord OAuth callback - FIXED THE INCOMPLETE STRING HERE
+// Discord OAuth callback
 app.get('/callback', authLimiter, async (req, res) => {
   try {
     const { code } = req.query;
@@ -525,32 +560,78 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ error: 'Internal server error' });
 });
 
-// --- SERVER STARTUP ---
+// --- SERVER STARTUP --- - UPDATED FOR OPTION 1
 async function startServer() {
   try {
-    // Start Express server
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Environment: ${NODE_ENV}`);
-      console.log(`Dashboard available at: http://localhost:${PORT}/dashboard`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
+    // Add Railway-specific handling
+    const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL;
+    
+    if (isRailway) {
+      console.log('🚂 Running in Railway environment');
+      console.log(`📡 Railway URL: ${process.env.RAILWAY_STATIC_URL || 'Not set'}`);
+      console.log(`🔧 Port from env: ${process.env.PORT || 'Not set'}`);
+    }
+
+    // Railway provides PORT automatically, fallback to 3000 for local
+    const PORT = process.env.PORT || 3000;
+    
+    // Start Express server - MUST bind to 0.0.0.0 for Railway
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`🌐 Environment: ${NODE_ENV}`);
+      console.log(`🔐 Allowed origins: ${ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS.join(', ') : 'All (development mode)'}`);
+      console.log(`🤖 Bot status: ${TOKEN ? 'Enabled' : 'Disabled (running in dashboard-only mode)'}`);
+      
+      if (isRailway) {
+        const railwayUrl = process.env.RAILWAY_STATIC_URL;
+        if (railwayUrl) {
+          console.log(`🚀 Public URL: ${railwayUrl}`);
+          console.log(`🔗 Dashboard: ${railwayUrl}/dashboard`);
+          console.log(`🏥 Health Check: ${railwayUrl}/health`);
+        }
+      } else {
+        console.log(`📊 Dashboard available at: http://localhost:${PORT}/dashboard`);
+        console.log(`🏥 Health check: http://localhost:${PORT}/health`);
+      }
     });
+
+    // Handle graceful shutdown
+    server.on('error', (error) => {
+      console.error('❌ Server error:', error);
+      if (error.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} is already in use`);
+      }
+      process.exit(1);
+    });
+
+    // Railway sends SIGTERM for shutdown
+    process.on('SIGTERM', () => {
+      console.log('🔻 SIGTERM received, shutting down gracefully');
+      server.close(() => {
+        console.log('✅ HTTP server closed');
+        process.exit(0);
+      });
+      
+      // Force close after 10 seconds
+      setTimeout(() => {
+        console.log('⚠️ Forcing shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    });
+
+    process.on('SIGINT', () => {
+      console.log('🔻 SIGINT received, shutting down');
+      server.close(() => {
+        console.log('✅ HTTP server closed');
+        process.exit(0);
+      });
+    });
+
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down');
-  process.exit(0);
-});
 
 // Start the application
 startServer();
