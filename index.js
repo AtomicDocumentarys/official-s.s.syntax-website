@@ -5,12 +5,9 @@ const axios = require('axios');
 const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
-const zlib = require('zlib');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
-const { v4: uuidv4 } = require('uuid');
-const util = require('util');
 
 // --- CONFIGURATION ---
 const TOKEN = process.env.TOKEN || '';
@@ -21,7 +18,6 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const API_SECRET = process.env.API_SECRET || crypto.randomBytes(32).toString('hex');
 
 // Parse ALLOWED_ORIGINS from environment variable
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '').split(',').filter(Boolean);
@@ -49,10 +45,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-      imgSrc: ["'self'", "data:", "https:"]
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      fontSrc: ["'self'"],
+      imgSrc: ["'self'", "data:"]
     }
   },
   hsts: false
@@ -70,7 +66,7 @@ app.use(cors({
     if (ALLOWED_ORIGINS.includes(origin)) {
       callback(null, true);
     } else {
-      console.warn(`Blocked CORS request from origin: ${origin}`);
+      console.log(`Blocked CORS request from origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -87,16 +83,15 @@ try {
     maxRetriesPerRequest: 3,
     enableReadyCheck: false,
     lazyConnect: false,
-    retryStrategy: (times) => Math.min(times * 100, 5000),
-    reconnectOnError: (err) => err.message.includes('READONLY')
+    retryStrategy: (times) => Math.min(times * 100, 5000)
   });
 
   redis.on('connect', () => console.log('Redis connected'));
   redis.on('error', (err) => console.error('Redis error:', err.message));
-  redis.on('close', () => console.warn('Redis connection closed'));
+  redis.on('close', () => console.log('Redis connection closed'));
 } catch (error) {
   console.error('Failed to create Redis client:', error.message);
-  // Create a mock redis client that doesn't throw errors
+  // Create a mock redis client
   redis = {
     get: async () => null,
     set: async () => 'OK',
@@ -119,17 +114,10 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
-  const requestId = uuidv4().substring(0, 8);
+  const requestId = crypto.randomBytes(4).toString('hex');
   res.on('finish', () => {
     const duration = Date.now() - start;
-    const logMessage = `${requestId} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`;
-    if (res.statusCode >= 500) {
-      console.error(`Error: ${logMessage}`);
-    } else if (res.statusCode >= 400) {
-      console.warn(`Warning: ${logMessage}`);
-    } else {
-      console.log(`Success: ${logMessage}`);
-    }
+    console.log(`${requestId} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
   });
   req.requestId = requestId;
   next();
@@ -153,18 +141,33 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // --- SESSION MANAGEMENT ---
 function generateSessionId() {
-  const uuid = uuidv4();
+  const randomBytes = crypto.randomBytes(32).toString('hex');
+  const timestamp = Date.now().toString(36);
   const hmac = crypto.createHmac('sha256', SESSION_SECRET);
-  hmac.update(uuid);
-  return `${uuid}:${hmac.digest('hex').substring(0, 16)}`;
+  hmac.update(randomBytes + timestamp);
+  return `${randomBytes}:${timestamp}:${hmac.digest('hex').substring(0, 16)}`;
 }
 
 function verifySessionId(sessionId) {
-  const [uuid, signature] = sessionId.split(':');
-  if (!uuid || !signature) return false;
+  const parts = sessionId.split(':');
+  if (parts.length !== 3) return false;
+  
+  const [randomBytes, timestamp, signature] = parts;
   const hmac = crypto.createHmac('sha256', SESSION_SECRET);
-  hmac.update(uuid);
-  return signature === hmac.digest('hex').substring(0, 16);
+  hmac.update(randomBytes + timestamp);
+  
+  // Check if signature matches
+  if (signature !== hmac.digest('hex').substring(0, 16)) {
+    return false;
+  }
+  
+  // Optional: Check if timestamp is too old (more than 24 hours)
+  const sessionTime = parseInt(timestamp, 36);
+  if (Date.now() - sessionTime > 24 * 60 * 60 * 1000) {
+    return false;
+  }
+  
+  return true;
 }
 
 async function createSession(discordToken, userData, ipAddress) {
@@ -195,7 +198,7 @@ async function validateSession(sessionId, ipAddress) {
   }
   
   if (NODE_ENV === 'production' && ipAddress && session.ipAddress !== ipAddress) {
-    console.warn('Session IP mismatch');
+    console.log('Session IP mismatch');
     return null;
   }
   
@@ -232,14 +235,14 @@ async function authenticateUser(req, res, next) {
 async function loadGuildCommands(guildId) {
   try {
     const commands = await redis.hgetall(`commands:${guildId}`);
-    if (!commands) return [];
+    if (!commands || Object.keys(commands).length === 0) return [];
     
     const parsedCommands = Object.values(commands)
       .map(c => {
         try { 
           return JSON.parse(c); 
         } catch (e) { 
-          console.error('Failed to parse command:', e);
+          console.log('Failed to parse command:', e.message);
           return null; 
         }
       })
@@ -247,7 +250,7 @@ async function loadGuildCommands(guildId) {
     
     return parsedCommands;
   } catch (error) {
-    console.error('Failed to load commands:', error.message);
+    console.log('Failed to load commands:', error.message);
     return [];
   }
 }
@@ -257,7 +260,7 @@ async function saveGuildCommand(guildId, commandId, commandData) {
     await redis.hset(`commands:${guildId}`, commandId, JSON.stringify(commandData));
     return true;
   } catch (error) {
-    console.error('Failed to save command:', error.message);
+    console.log('Failed to save command:', error.message);
     return false;
   }
 }
@@ -267,7 +270,7 @@ async function deleteGuildCommand(guildId, commandId) {
     await redis.hdel(`commands:${guildId}`, commandId);
     return true;
   } catch (error) {
-    console.error('Failed to delete command:', error.message);
+    console.log('Failed to delete command:', error.message);
     return false;
   }
 }
@@ -323,7 +326,7 @@ app.post('/api/commands/:guildId', authenticateUser, apiLimiter, [
     
     const { guildId } = req.params;
     const { name, code, description } = req.body;
-    const commandId = uuidv4();
+    const commandId = crypto.randomBytes(16).toString('hex');
     
     const commandData = {
       id: commandId,
@@ -427,6 +430,10 @@ app.get('/callback', authLimiter, async (req, res) => {
 
 // Login endpoint (returns OAuth URL)
 app.get('/api/login', (req, res) => {
+  if (!CLIENT_ID) {
+    return res.status(500).json({ error: 'Client ID not configured' });
+  }
+  
   const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
   return res.json({ url: discordAuthUrl });
 });
@@ -483,7 +490,12 @@ app.get('/api/user/guilds', authenticateUser, apiLimiter, async (req, res) => {
       const permissions = BigInt(guild.permissions);
       // ADMINISTRATOR permission or MANAGE_GUILD
       return (permissions & 0x8n) === 0x8n || (permissions & 0x20n) === 0x20n;
-    });
+    }).map(guild => ({
+      id: guild.id,
+      name: guild.name,
+      icon: guild.icon,
+      permissions: guild.permissions
+    }));
     
     return res.json({ 
       success: true,
@@ -534,11 +546,9 @@ app.use((err, req, res, next) => {
 async function startServer() {
   try {
     // Start Express server
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${NODE_ENV}`);
-      console.log(`Allowed origins: ${ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS.join(', ') : 'All (development mode)'}`);
-      console.log(`Bot status: ${TOKEN ? 'Token provided' : 'Running in dashboard-only mode'}`);
       console.log(`Dashboard available at: http://localhost:${PORT}/dashboard`);
       console.log(`Health check: http://localhost:${PORT}/health`);
     });
