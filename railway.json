@@ -6,9 +6,9 @@
   },
   "deploy": {
     "numReplicas": 1,
-    "restartPolicyType": "NEVER",  // <-- CRITICAL: Don't auto-restart
-    "healthcheckPath": "/",        // Simple health check
-    "healthcheckTimeout": 120,     // 2 minutes timeout
+    "restartPolicyType": "NEVER", 
+    "healthcheckPath": "/",      
+    "healthcheckTimeout": 120,     
     "startCommand": "node server.js"
   }
 }
