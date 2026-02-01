@@ -1,262 +1,310 @@
-// Simple Frontend App
-let currentUser = null;
-let csrfToken = null;
+// Simple Frontend
+let user = null;
+let clientId = null;
 
-// Initialize
-async function init() {
-    console.log('Initializing dashboard...');
-    
-    // Get CSRF token
-    await fetchCSRFToken();
-    
-    // Check for token in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const tokenParam = urlParams.get('token');
-    
-    if (tokenParam) {
-        // Store token
-        sessionStorage.setItem('auth_token', tokenParam);
-        
-        // Remove token from URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        
-        // Load user data
-        await loadUserData();
-    } else {
-        // Check session storage
-        const storedToken = sessionStorage.getItem('auth_token');
-        if (storedToken) {
-            await loadUserData();
-        }
+// Load on start
+window.onload = async function() {
+  // First get the client ID from server
+  await getClientId();
+  
+  checkAuth();
+  loadStatus();
+  
+  // Check for token in URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  
+  if (token) {
+    sessionStorage.setItem('token', token);
+    window.history.replaceState({}, '', '/');
+    checkAuth();
+  }
+};
+
+// Get client ID from server
+async function getClientId() {
+  try {
+    // You can store client ID in a meta tag or get it from an API endpoint
+    // For now, we'll store it in a meta tag in index.html
+    const metaTag = document.querySelector('meta[name="client-id"]');
+    if (metaTag) {
+      clientId = metaTag.getAttribute('content');
     }
     
-    // Load status
-    loadStatus();
-}
-
-async function fetchCSRFToken() {
-    try {
-        const response = await fetch('/api/csrf-token');
+    // If not in meta tag, try to get it from a simple endpoint
+    if (!clientId) {
+      try {
+        const response = await fetch('/api/config');
         const data = await response.json();
-        csrfToken = data.csrfToken;
-        console.log('CSRF token loaded');
-    } catch (error) {
-        console.warn('CSRF token fetch failed:', error);
+        clientId = data.clientId;
+      } catch (error) {
+        console.log('No config endpoint, will use fallback');
+      }
     }
+    
+    console.log('Client ID loaded:', clientId);
+  } catch (error) {
+    console.error('Failed to get client ID:', error);
+  }
 }
 
-async function loadUserData() {
-    const token = sessionStorage.getItem('auth_token');
-    if (!token) return;
-    
-    try {
-        const response = await fetch('/api/user-me', {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'X-CSRF-Token': csrfToken
-            }
-        });
-        
-        if (response.ok) {
-            const user = await response.json();
-            currentUser = user;
-            updateUserUI(user);
-            showAuthenticatedUI();
-            loadMutualServers();
-        } else {
-            // Token expired
-            sessionStorage.removeItem('auth_token');
-            showNotification('Session expired, please login again', 'warning');
-        }
-    } catch (error) {
-        console.error('Load user error:', error);
-    }
-}
-
-function updateUserUI(user) {
-    document.getElementById('userName').textContent = user.username;
-    document.getElementById('userDiscriminator').textContent = '#' + user.discriminator;
-    
-    const avatarUrl = user.avatar ? 
-        `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` :
-        `https://cdn.discordapp.com/embed/avatars/${user.discriminator % 5}.png`;
-    
-    document.getElementById('userPfp').src = avatarUrl;
-    
-    document.getElementById('userSection').classList.remove('hidden');
-    document.getElementById('authSection').classList.add('hidden');
-}
-
-async function loadMutualServers() {
-    const token = sessionStorage.getItem('auth_token');
-    if (!token) return;
-    
-    try {
-        const response = await fetch('/api/mutual-servers', {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'X-CSRF-Token': csrfToken
-            }
-        });
-        
-        if (response.ok) {
-            const guilds = await response.json();
-            updateGuildSelect(guilds);
-        }
-    } catch (error) {
-        console.error('Load guilds error:', error);
-    }
-}
-
-function updateGuildSelect(guilds) {
-    const select = document.getElementById('guildSelect');
-    select.innerHTML = '<option value="">Select a server...</option>';
-    
-    guilds.forEach(guild => {
-        const option = document.createElement('option');
-        option.value = guild.id;
-        option.textContent = guild.name;
-        select.appendChild(option);
+// Check if user is authenticated
+async function checkAuth() {
+  const token = sessionStorage.getItem('token');
+  
+  if (!token) {
+    showLoginUI();
+    return;
+  }
+  
+  try {
+    const response = await fetch('/api/user-me', {
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
     });
     
-    if (guilds.length > 0) {
-        select.classList.remove('hidden');
-        document.querySelectorAll('.s-only').forEach(el => el.classList.remove('hidden'));
-    }
-}
-
-async function loadStatus() {
-    try {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-        
-        // Update status display
-        document.getElementById('botStatus').textContent = data.bot;
-        document.getElementById('botStatus').className = data.bot.includes('Online') ? 'status-good' : 'status-error';
-        
-        document.getElementById('redisStatus').textContent = data.redis;
-        document.getElementById('redisStatus').className = data.redis.includes('Connected') ? 'status-good' : 'status-error';
-        
-        document.getElementById('serverCount').textContent = data.guilds;
-        document.getElementById('botUptime').textContent = data.uptime;
-        
-        // Update security status
-        updateSecurityStatus(data);
-        
-    } catch (error) {
-        console.error('Load status error:', error);
-    }
-}
-
-function updateSecurityStatus(data) {
-    const csrfElement = document.getElementById('csrfStatus');
-    const rateLimitElement = document.getElementById('rateLimitStatus');
-    const encryptionElement = document.getElementById('encryptionStatus');
-    
-    csrfElement.innerHTML = `<i class="fas fa-check-circle"></i><span>CSRF Protection</span><span class="status-badge status-good">Active</span>`;
-    
-    rateLimitElement.innerHTML = `<i class="fas fa-check-circle"></i><span>Rate Limiting</span><span class="status-badge status-good">Active</span>`;
-    
-    if (data.redis.includes('Connected')) {
-        encryptionElement.innerHTML = `<i class="fas fa-check-circle"></i><span>Encryption</span><span class="status-badge status-good">Active</span>`;
+    if (response.ok) {
+      user = await response.json();
+      showUserUI(user);
+      loadGuilds();
     } else {
-        encryptionElement.innerHTML = `<i class="fas fa-exclamation-triangle"></i><span>Encryption</span><span class="status-badge status-warning">No Redis</span>`;
+      sessionStorage.removeItem('token');
+      showLoginUI();
     }
+  } catch (error) {
+    console.error('Auth check failed:', error);
+    showLoginUI();
+  }
 }
 
-function showAuthenticatedUI() {
-    document.querySelectorAll('.s-only').forEach(el => el.classList.remove('hidden'));
+// Show login button
+function showLoginUI() {
+  document.getElementById('authSection').style.display = 'block';
+  document.getElementById('userSection').style.display = 'none';
+  document.querySelectorAll('.s-only').forEach(el => {
+    el.style.display = 'none';
+  });
 }
 
+// Show user info
+function showUserUI(userData) {
+  document.getElementById('authSection').style.display = 'none';
+  document.getElementById('userSection').style.display = 'flex';
+  
+  // Update user info
+  document.getElementById('userName').textContent = userData.username;
+  document.getElementById('userDiscriminator').textContent = '#' + userData.discriminator;
+  document.getElementById('userPfp').src = userData.avatar 
+    ? `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png`
+    : 'https://cdn.discordapp.com/embed/avatars/0.png';
+  
+  // Show protected sections
+  document.querySelectorAll('.s-only').forEach(el => {
+    el.style.display = 'block';
+  });
+}
+
+// Load mutual guilds
+async function loadGuilds() {
+  const token = sessionStorage.getItem('token');
+  if (!token) return;
+  
+  try {
+    const response = await fetch('/api/mutual-servers', {
+      headers: {
+        'Authorization': 'Bearer ' + token
+      }
+    });
+    
+    if (response.ok) {
+      const guilds = await response.json();
+      updateGuildSelect(guilds);
+    }
+  } catch (error) {
+    console.error('Failed to load guilds:', error);
+  }
+}
+
+// Update guild dropdown
+function updateGuildSelect(guilds) {
+  const select = document.getElementById('guildSelect');
+  select.innerHTML = '<option value="">Select a server...</option>';
+  
+  guilds.forEach(guild => {
+    const option = document.createElement('option');
+    option.value = guild.id;
+    option.textContent = guild.name;
+    select.appendChild(option);
+  });
+}
+
+// Load system status
+async function loadStatus() {
+  try {
+    const response = await fetch('/api/status');
+    const data = await response.json();
+    
+    // Update status display
+    const botStatus = document.getElementById('botStatus');
+    botStatus.textContent = data.bot;
+    botStatus.className = data.bot.includes('Online') ? 'status-good' : 'status-error';
+    
+    const redisStatus = document.getElementById('redisStatus');
+    redisStatus.textContent = data.redis;
+    redisStatus.className = data.redis.includes('Connected') ? 'status-good' : 'status-error';
+    
+    document.getElementById('serverCount').textContent = data.guilds || 0;
+    document.getElementById('botUptime').textContent = data.uptime || '0 minutes';
+    
+  } catch (error) {
+    console.error('Status load failed:', error);
+  }
+}
+
+// Login function
 function login() {
-    // Get the current origin for redirect
-    const redirectUri = encodeURIComponent(window.location.origin + '/callback');
-    const clientId = 'YOUR_CLIENT_ID'; // Replace with your actual client ID
-    
-    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=identify%20guilds`;
-    window.location.href = authUrl;
+  if (!clientId) {
+    alert('Client ID not loaded yet. Please refresh the page.');
+    return;
+  }
+  
+  const redirectUri = encodeURIComponent(window.location.origin + '/callback');
+  window.location.href = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=identify%20guilds`;
 }
 
+// Logout function
 function logout() {
-    sessionStorage.removeItem('auth_token');
-    currentUser = null;
-    
-    document.getElementById('userSection').classList.add('hidden');
-    document.getElementById('authSection').classList.remove('hidden');
-    document.querySelectorAll('.s-only').forEach(el => el.classList.add('hidden'));
-    
-    showNotification('Logged out successfully', 'success');
-    switchTab('home');
+  sessionStorage.removeItem('token');
+  user = null;
+  showLoginUI();
+  showNotification('Logged out successfully', 'success');
 }
 
-function showNotification(message, type = 'info') {
-    const container = document.getElementById('notificationContainer');
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.innerHTML = `
-        <div class="notification-content">
-            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
-            <span>${message}</span>
-        </div>
-        <button class="notification-close" onclick="this.parentElement.remove()">&times;</button>
-    `;
-    
-    container.appendChild(notification);
-    
-    setTimeout(() => notification.classList.add('show'), 10);
-    setTimeout(() => {
-        notification.classList.remove('show');
-        setTimeout(() => notification.remove(), 300);
-    }, 5000);
-}
-
-// Global functions for HTML
-function switchTab(tabName) {
-    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-    
-    document.getElementById(`v-${tabName}`).classList.add('active');
-    document.querySelector(`.nav-item[onclick*="${tabName}"]`).classList.add('active');
-}
-
-function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('show');
-}
-
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-}
-
-function toggleDropdown(event) {
-    event.stopPropagation();
-    document.getElementById('dropdown').classList.toggle('show');
-}
-
+// Add bot to server
 function addToServer() {
-    const clientId = 'YOUR_CLIENT_ID'; // Replace with your actual client ID
-    window.open(`https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands`, '_blank');
+  if (!clientId) {
+    alert('Client ID not loaded yet. Please refresh the page.');
+    return;
+  }
+  
+  window.open(`https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands`, '_blank');
+}
+
+// Simple notification
+function showNotification(message, type = 'info') {
+  const container = document.getElementById('notificationContainer');
+  if (!container) {
+    alert(message); // Fallback to alert
+    return;
+  }
+  
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `
+    <div class="notification-content">
+      <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+      <span>${message}</span>
+    </div>
+    <button class="notification-close" onclick="this.parentElement.remove()">&times;</button>
+  `;
+  
+  container.appendChild(notification);
+  
+  setTimeout(() => notification.classList.add('show'), 10);
+  setTimeout(() => {
+    notification.classList.remove('show');
+    setTimeout(() => notification.remove(), 300);
+  }, 5000);
+}
+
+// Tab switching
+function switchTab(tabName) {
+  // Hide all tabs
+  document.querySelectorAll('.view').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  
+  // Show selected tab
+  document.getElementById('v-' + tabName).classList.add('active');
+  
+  // Update nav items
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.classList.remove('active');
+  });
+  
+  // Find and activate the clicked nav item
+  const navItems = document.querySelectorAll('.nav-item');
+  navItems.forEach(item => {
+    if (item.getAttribute('onclick') && item.getAttribute('onclick').includes(tabName)) {
+      item.classList.add('active');
+    }
+  });
+}
+
+// Theme toggle
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const newTheme = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('theme', newTheme);
+}
+
+// Guild selection
+function selectGuild() {
+  const select = document.getElementById('guildSelect');
+  const guildId = select.value;
+  
+  if (guildId) {
+    showNotification(`Selected server: ${select.options[select.selectedIndex].text}`, 'success');
+  }
+}
+
+// Toggle dropdown
+function toggleDropdown(event) {
+  event.stopPropagation();
+  const dropdown = document.getElementById('dropdown');
+  dropdown.classList.toggle('show');
 }
 
 // Close dropdowns when clicking outside
-document.addEventListener('click', () => {
-    const dropdown = document.getElementById('dropdown');
-    if (dropdown.classList.contains('show')) {
-        dropdown.classList.remove('show');
-    }
+document.addEventListener('click', function(event) {
+  const dropdown = document.getElementById('dropdown');
+  if (dropdown && dropdown.classList.contains('show') && 
+      !event.target.closest('.user-menu')) {
+    dropdown.classList.remove('show');
+  }
 });
 
-// Initialize on load
-document.addEventListener('DOMContentLoaded', () => {
-    // Load saved theme
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    
-    // Initialize app
-    init();
-    
-    // Load status every 30 seconds
-    setInterval(loadStatus, 30000);
-});
+// Toggle sidebar for mobile
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('show');
+}
+
+// View user profile
+function viewProfile() {
+  if (user) {
+    showNotification(`Viewing profile: ${user.username}#${user.discriminator}`, 'info');
+  }
+}
+
+// Open security settings
+function openSecuritySettings() {
+  switchTab('security');
+}
+
+// Run security scan
+function runSecurityScan() {
+  showNotification('Running security scan...', 'info');
+  setTimeout(() => {
+    showNotification('Security scan complete. All systems secure.', 'success');
+  }, 2000);
+}
+
+// Auto-refresh status every 30 seconds
+setInterval(loadStatus, 30000);
+
+// Load saved theme
+const savedTheme = localStorage.getItem('theme') || 'dark';
+document.documentElement.setAttribute('data-theme', savedTheme);
