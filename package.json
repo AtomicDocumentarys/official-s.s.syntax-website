@@ -16,7 +16,6 @@
   "author": "Atomic",
   "license": "MIT",
   "dependencies": {
-    npm install uuid
     "axios": "^1.6.2",
     "body-parser": "^1.20.2",
     "cookie-parser": "^1.4.6",
@@ -29,7 +28,8 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.3.2",
     "validator": "^13.11.0",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
@@ -44,4 +44,4 @@
     "type": "git",
     "url": "https://github.com/AtomicDocumentarys/official-s.s.syntax-website.git"
   }
-}
+  }
