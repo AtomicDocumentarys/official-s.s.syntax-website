@@ -1,56 +1,172 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Dashboard - Online</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-family: Arial, sans-serif;
-        }
-        .card {
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            text-align: center;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-        }
-        .icon {
-            font-size: 60px;
-            color: #4CAF50;
-            margin-bottom: 20px;
-        }
-        h1 {
-            color: #333;
-            margin: 0 0 10px 0;
-        }
-        p {
-            color: #666;
-            margin: 0 0 30px 0;
-        }
-        .status {
-            background: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border-radius: 50px;
-            display: inline-block;
-            font-weight: bold;
-        }
-    </style>
+    <title>SS Syntax - Code Execution Platform</title>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/show-hint.min.css">
+    
+    <!-- Our Styles -->
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="card">
-        <div class="icon">✓</div>
-        <h1>S.S. Syntax Dashboard</h1>
-        <p>Your dashboard is running successfully on Railway</p>
-        <div class="status">ONLINE</div>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div>
+                    <h1>SS Syntax</h1>
+                    <p>Secure Code Execution Platform</p>
+                </div>
+            </div>
+            
+            <div class="status">
+                <div class="status-dot"></div>
+                <span>System Online</span>
+                <div class="security-badge">
+                    <i class="fas fa-shield-alt"></i>
+                    Secure Sandbox Active
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-layout">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <h3><i class="fas fa-code"></i> Languages</h3>
+                <div class="language-list" id="languageList">
+                    <!-- Languages will be loaded here -->
+                </div>
+                
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #334155;">
+                    <h4><i class="fas fa-info-circle"></i> About</h4>
+                    <p style="font-size: 0.9rem; color: #94a3b8; margin-top: 10px;">
+                        This platform provides secure code execution in a sandboxed environment. All code runs with strict security measures.
+                    </p>
+                    
+                    <div style="margin-top: 20px;">
+                        <h4><i class="fas fa-lock"></i> Security Features</h4>
+                        <ul style="font-size: 0.85rem; color: #94a3b8; margin-top: 10px; padding-left: 20px;">
+                            <li>Code validation & sanitization</li>
+                            <li>Time & memory limits</li>
+                            <li>Dangerous command blocking</li>
+                            <li>Rate limiting</li>
+                            <li>Output size limits</li>
+                        </ul>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Editor Section -->
+            <main class="editor-section">
+                <!-- Editor Header -->
+                <div class="editor-header">
+                    <div class="editor-title" id="editorTitle">
+                        <i class="fab fa-js-square"></i>
+                        JavaScript Editor
+                        <span style="color: #f7df1e;">●</span>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" id="runBtn">
+                            <i class="fas fa-play"></i> Run Code
+                        </button>
+                        <button class="btn btn-secondary" id="saveBtn">
+                            <i class="fas fa-save"></i> Save
+                        </button>
+                        <button class="btn btn-secondary" id="resetBtn">
+                            <i class="fas fa-redo"></i> Reset
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Code Editor -->
+                <div class="code-editor" id="codeEditor">
+                    <!-- CodeMirror will be initialized here -->
+                </div>
+
+                <!-- Execution Info -->
+                <div class="execution-info">
+                    <div class="info-item">
+                        <i class="fas fa-clock" style="color: #60a5fa;"></i>
+                        <div>
+                            <div class="info-label">Execution Time</div>
+                            <div class="info-value" id="execTime">0ms</div>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-file-code" style="color: #10b981;"></i>
+                        <div>
+                            <div class="info-label">Code Size</div>
+                            <div class="info-value" id="codeSize">0 chars</div>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-language" style="color: #f59e0b;"></i>
+                        <div>
+                            <div class="info-label">Current Language</div>
+                            <div class="info-value" id="languageName">JavaScript</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Console -->
+                <div class="console">
+                    <div class="console-header">
+                        <div class="console-title" id="consoleTitle">
+                            <i class="fas fa-terminal"></i>
+                            JavaScript Output
+                        </div>
+                        <button class="btn btn-secondary" id="clearConsoleBtn" style="padding: 8px 15px; font-size: 0.9rem;">
+                            <i class="fas fa-broom"></i> Clear
+                        </button>
+                    </div>
+                    <div class="console-output" id="consoleOutput">
+                        <div class="output-line info">
+                            Welcome to SS Syntax Code Execution Platform!
+                            <br>
+                            Select a language and click "Run Code" to execute.
+                            <br>
+                            Console output will appear here.
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Footer -->
+        <footer style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #334155; text-align: center; color: #94a3b8;">
+            <p>
+                <i class="fas fa-shield-alt"></i> Secure Sandbox Environment | 
+                <i class="fas fa-bolt"></i> Powered by Railway |
+                <i class="fas fa-robot"></i> Discord Bot Integration Ready
+            </p>
+            <p style="font-size: 0.9rem; margin-top: 10px;">
+                © 2024 SS Syntax - All code execution is monitored and secured
+            </p>
+        </footer>
     </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/go/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/hint/javascript-hint.min.js"></script>
+    
+    <!-- Our Script -->
+    <script src="script.js"></script>
 </body>
-</html>
+    </html>
